@@ -5,6 +5,7 @@ go 1.17
 require (
 	github.com/libp2p/go-libp2p v0.16.0
 	github.com/libp2p/go-libp2p-core v0.11.0
+	github.com/libp2p/go-libp2p-pubsub v0.6.0
 	github.com/multiformats/go-multiaddr v0.4.0
 )
 
@@ -96,6 +97,7 @@ require (
 	github.com/prometheus/procfs v0.7.3 // indirect
 	github.com/spacemonkeygo/spacelog v0.0.0-20180420211403-2296661a0572 // indirect
 	github.com/whyrusleeping/multiaddr-filter v0.0.0-20160516205228-e903e4adabd7 // indirect
+	github.com/whyrusleeping/timecache v0.0.0-20160911033111-cfcb2f1abfee // indirect
 	go.uber.org/atomic v1.9.0 // indirect
 	go.uber.org/multierr v1.7.0 // indirect
 	go.uber.org/zap v1.19.0 // indirect

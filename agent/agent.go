@@ -9,12 +9,14 @@ import (
 	"github.com/libp2p/go-libp2p"
 	"github.com/libp2p/go-libp2p-core/host"
 	"github.com/libp2p/go-libp2p-core/peer"
+	pubsub "github.com/libp2p/go-libp2p-pubsub"
 	"github.com/libp2p/go-libp2p/p2p/discovery/mdns"
 	"github.com/multiformats/go-multiaddr"
 )
 
 type Agent struct {
-	host host.Host
+	host      host.Host
+	gossipSub *pubsub.PubSub
 }
 
 type Config struct {
@@ -55,6 +57,12 @@ func NewAgent(logger *log.Logger, config *Config) (*Agent, error) {
 
 	logger.Printf("Agent started: addr=%s", listenAddr.String())
 
+	// start gossip protocol
+	ps, err := pubsub.NewGossipSub(context.Background(), host)
+	if err != nil {
+		return nil, err
+	}
+
 	peerChan := initMDNS(host, config.RendezvousString)
 	go func() {
 		for {
@@ -68,7 +76,8 @@ func NewAgent(logger *log.Logger, config *Config) (*Agent, error) {
 	}()
 
 	a := &Agent{
-		host: host,
+		host:      host,
+		gossipSub: ps,
 	}
 	return a, nil
 }
