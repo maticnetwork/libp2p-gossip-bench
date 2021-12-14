@@ -1,0 +1,3 @@
+[submodule "toxiproxy"]
+	path = toxiproxy
+	url = https://github.com/Shopify/toxiproxy

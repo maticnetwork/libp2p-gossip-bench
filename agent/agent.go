@@ -3,25 +3,36 @@ package agent
 import (
 	"context"
 	"fmt"
+	"io/ioutil"
 	"log"
+	"math/rand"
 	"net"
+	"net/http"
+
+	"github.com/Shopify/toxiproxy/v2"
+	"github.com/Shopify/toxiproxy/v2/toxics"
+	"github.com/labstack/echo/v4"
 
 	"github.com/libp2p/go-libp2p"
 	"github.com/libp2p/go-libp2p-core/host"
 	"github.com/libp2p/go-libp2p-core/peer"
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
-	"github.com/libp2p/go-libp2p/p2p/discovery/mdns"
 	"github.com/multiformats/go-multiaddr"
 )
 
 type Agent struct {
 	host      host.Host
+	logger    *log.Logger
 	gossipSub *pubsub.PubSub
+	config    *Config
+	topic     *pubsub.Topic
+	sidecar   *toxiproxy.ApiServer
 }
 
 type Config struct {
 	Addr             *net.TCPAddr
-	NatAddr          string
+	ProxyAddr        *net.TCPAddr
+	HttpAddr         *net.TCPAddr
 	RendezvousString string
 }
 
@@ -36,9 +47,37 @@ func NewAgent(logger *log.Logger, config *Config) (*Agent, error) {
 		return nil, err
 	}
 
+	// start the proxy
+	if config.ProxyAddr != nil {
+		proxy := toxiproxy.NewProxy()
+		proxy.Name = "proxy"
+		proxy.Listen = config.ProxyAddr.String()
+		proxy.Upstream = config.Addr.String()
+
+		sidecar := toxiproxy.NewServer()
+		if err := sidecar.Collection.Add(proxy, true); err != nil {
+			panic(err)
+		}
+
+		go func() {
+			// pick up every link created in the proxy and add the specific latency toxic
+			linkCh := make(chan *toxiproxy.ToxicLink)
+			proxy.Toxics.LinkCh = linkCh
+
+			for {
+				link := <-linkCh
+				fmt.Println(link)
+
+				link.AddToxic(&toxics.ToxicWrapper{
+					Name: "XX",
+				})
+			}
+		}()
+	}
+
 	addrsFactory := func(addrs []multiaddr.Multiaddr) []multiaddr.Multiaddr {
-		if config.NatAddr != "" {
-			addr, _ := multiaddr.NewMultiaddr(fmt.Sprintf("/ip4/%s/tcp/%d", config.NatAddr, config.Addr.Port))
+		if config.ProxyAddr != nil {
+			addr, _ := multiaddr.NewMultiaddr(fmt.Sprintf("/ip4/%s/tcp/%d", config.ProxyAddr.IP.String(), config.ProxyAddr.Port))
 
 			if addr != nil {
 				addrs = []multiaddr.Multiaddr{addr}
@@ -76,14 +115,55 @@ func NewAgent(logger *log.Logger, config *Config) (*Agent, error) {
 	}()
 
 	a := &Agent{
+		logger:    logger,
 		host:      host,
 		gossipSub: ps,
+		config:    config,
 	}
+
+	if config.HttpAddr != nil {
+		a.setupHttp()
+	}
+
+	if a.topic, err = ps.Join("topic"); err != nil {
+		return nil, err
+	}
+	sub, err := a.topic.Subscribe()
+	if err != nil {
+		return nil, err
+	}
+	readLoop(sub, func(data []byte) {
+		fmt.Println(data)
+	})
+
 	return a, nil
 }
 
 func (a *Agent) Stop() {
 	a.host.Close()
+}
+
+func (a *Agent) publish() {
+	data := make([]byte, 1024)
+	rand.Read(data)
+
+	a.topic.Publish(context.Background(), data)
+}
+
+func (a *Agent) setupHttp() {
+	e := echo.New()
+	e.HideBanner = true
+	e.Logger.SetOutput(ioutil.Discard)
+
+	e.GET("/", func(c echo.Context) error {
+		a.publish()
+		return c.JSON(http.StatusOK, map[string]interface{}{})
+	})
+
+	go func() {
+		a.logger.Printf("Start http server: addr=%s", a.config.HttpAddr.String())
+		e.Logger.Fatal(e.Start(a.config.HttpAddr.String()))
+	}()
 }
 
 type discoveryNotifee struct {
@@ -102,9 +182,21 @@ func initMDNS(peerhost host.Host, rendezvous string) chan peer.AddrInfo {
 	n.PeerChan = make(chan peer.AddrInfo)
 
 	// An hour might be a long long period in practical applications. But this is fine for us
-	ser := mdns.NewMdnsService(peerhost, rendezvous, n)
+	ser := NewMdnsService(peerhost, rendezvous, n)
 	if err := ser.Start(); err != nil {
 		panic(err)
 	}
 	return n.PeerChan
+}
+
+func readLoop(sub *pubsub.Subscription, handler func(obj []byte)) {
+	go func() {
+		for {
+			msg, err := sub.Next(context.Background())
+			if err != nil {
+				continue
+			}
+			handler(msg.Data)
+		}
+	}()
 }
