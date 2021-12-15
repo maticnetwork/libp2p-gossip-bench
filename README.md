@@ -1,22 +1,50 @@
 
 # Libp2p benchmark
 
-Run the agent:
+Build the docker image:
 
 ```
-$ go run main.go --bind-port 3000
+docker build -t yyyy .
 ```
 
-Run a second agent:
+Run agent 1:
 
 ```
-$ go run main.go --bind-port 3001
+$ docker run yyyy agent --bind-addr 127.0.0.1:3000 --proxy-addr '{{ GetInterfaceIP "eth0" }}:8000'
 ```
 
-They should find each other and connect over libp2p.
-
-## Docker
+Run agent 2:
 
 ```
-$ go run main.go --bind-addr 127.0.0.1:3000 --nat '{{ GetInterfaceIP "eth0" }}'
+$ docker run yyyy agent --bind-addr 127.0.0.1:3000 --proxy-addr '{{ GetInterfaceIP "eth0" }}:8000'
 ```
+
+Publish a message in agent 1:
+
+```
+$ curl 172.17.0.2:7000/publish
+```
+
+## Arguments
+
+- **city**: Use a specific city, otherwise a random one is choosen from the latency matrix.
+
+## API
+
+Check the city of the agent:
+
+```
+$ curl 172.17.0.2:7000/system/city
+Valencia
+```
+
+## Toxiproxy
+
+If you change something from toxiproxy you might need to vendor again with:
+
+```
+$ go mod tidy
+$ go mod vendor
+```
+
+since it is a dependency library.
