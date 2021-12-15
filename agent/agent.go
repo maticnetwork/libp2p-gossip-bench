@@ -47,6 +47,7 @@ type Config struct {
 	RendezvousString string
 	City             string
 	ID               string
+	MaxPeers         int64
 }
 
 func DefaultConfig() *Config {
@@ -144,6 +145,13 @@ func NewAgent(logger *log.Logger, config *Config) (*Agent, error) {
 
 	logger.Printf("Agent started: addr=%s, city=%s", listenAddr.String(), config.City)
 
+	if config.MaxPeers == 0 {
+		panic("Max peers cannot be zero")
+	}
+	if config.MaxPeers > -1 {
+		logger.Printf("Max peers: %d", config.MaxPeers)
+	}
+
 	// start gossip protocol
 	ps, err := pubsub.NewGossipSub(context.Background(), host)
 	if err != nil {
@@ -155,6 +163,14 @@ func NewAgent(logger *log.Logger, config *Config) (*Agent, error) {
 		for {
 			peer := <-peerChan
 			logger.Printf("[INFO] Found peer: peer=%s", peer)
+
+			numPeers := len(host.Network().Peers())
+			if config.MaxPeers != -1 {
+				if numPeers >= int(config.MaxPeers) {
+					logger.Printf("[INFO]: Skip peer")
+					continue
+				}
+			}
 
 			if err := host.Connect(context.Background(), peer); err != nil {
 				fmt.Println("Connection failed:", err)
@@ -233,7 +249,9 @@ func (a *Agent) publish(size int) {
 	if err != nil {
 		panic(err)
 	}
-	a.topic.Publish(context.Background(), raw)
+	if err := a.topic.Publish(context.Background(), raw); err != nil {
+		panic(err)
+	}
 }
 
 func hashit(b []byte) string {
@@ -265,7 +283,7 @@ func (a *Agent) setupHttp() {
 			size = s
 		}
 
-		a.publish(size)
+		go a.publish(size)
 		return c.JSON(http.StatusOK, map[string]interface{}{})
 	})
 
