@@ -2,12 +2,16 @@ package agent
 
 import (
 	"context"
+	_ "embed"
+	"encoding/json"
 	"fmt"
 	"io/ioutil"
 	"log"
 	"math/rand"
 	"net"
 	"net/http"
+	"strings"
+	"time"
 
 	"github.com/Shopify/toxiproxy/v2"
 	"github.com/Shopify/toxiproxy/v2/toxics"
@@ -20,6 +24,9 @@ import (
 	"github.com/multiformats/go-multiaddr"
 )
 
+//go:embed latencies.json
+var latencyDataRaw string
+
 type Agent struct {
 	host      host.Host
 	logger    *log.Logger
@@ -27,6 +34,7 @@ type Agent struct {
 	config    *Config
 	topic     *pubsub.Topic
 	sidecar   *toxiproxy.ApiServer
+	latency   *LatencyData
 }
 
 type Config struct {
@@ -34,10 +42,14 @@ type Config struct {
 	ProxyAddr        *net.TCPAddr
 	HttpAddr         *net.TCPAddr
 	RendezvousString string
+	City             string
 }
 
 func DefaultConfig() *Config {
-	c := &Config{}
+	c := &Config{
+		Addr:     &net.TCPAddr{IP: net.ParseIP("127.0.0.1"), Port: 6000},
+		HttpAddr: &net.TCPAddr{IP: net.ParseIP("0.0.0.0"), Port: 7000},
+	}
 	return c
 }
 
@@ -47,8 +59,19 @@ func NewAgent(logger *log.Logger, config *Config) (*Agent, error) {
 		return nil, err
 	}
 
+	// read latency
+	latency := readLatency()
+
+	// try to decode the city
+	if config.City == "" {
+		logger.Printf("Generate new city...")
+		config.City = latency.getRandomCity()
+	}
+
 	// start the proxy
 	if config.ProxyAddr != nil {
+		logger.Printf("[INFO]: Proxy/NAT %s", config.ProxyAddr.String())
+
 		proxy := toxiproxy.NewProxy()
 		proxy.Name = "proxy"
 		proxy.Listen = config.ProxyAddr.String()
@@ -61,16 +84,38 @@ func NewAgent(logger *log.Logger, config *Config) (*Agent, error) {
 
 		go func() {
 			// pick up every link created in the proxy and add the specific latency toxic
-			linkCh := make(chan *toxiproxy.ToxicLink)
+			linkCh := make(chan *toxiproxy.ToxicLink, 1000)
 			proxy.Toxics.LinkCh = linkCh
 
 			for {
 				link := <-linkCh
 				fmt.Println(link)
 
-				link.AddToxic(&toxics.ToxicWrapper{
-					Name: "XX",
-				})
+				go func(link *toxiproxy.ToxicLink) {
+
+					name := link.Name()
+					name = strings.TrimSuffix(name, "upstream")
+					name = strings.TrimSuffix(name, "downstream")
+
+					// ping that ip in name on the http port to get the name of the destination city
+					ip := strings.Split(name, ":")[0]
+					dest := query("http://" + ip + ":7000/system/city")
+					proxyLatency := latency.FindLatency(config.City, dest)
+
+					logger.Printf("[INFO]: Add latency: ip=%s, city=%s, latency=%s", name, dest, proxyLatency)
+
+					// latency := 1 * time.Second
+
+					link.AddToxic(&toxics.ToxicWrapper{
+						Toxic: &toxics.LatencyToxic{
+							Latency: proxyLatency.Milliseconds(),
+						},
+						Type:       "latency",
+						Direction:  link.Direction(),
+						BufferSize: 1024,
+						Toxicity:   1,
+					})
+				}(link)
 			}
 		}()
 	}
@@ -94,7 +139,7 @@ func NewAgent(logger *log.Logger, config *Config) (*Agent, error) {
 		return nil, fmt.Errorf("failed to create libp2p stack: %v", err)
 	}
 
-	logger.Printf("Agent started: addr=%s", listenAddr.String())
+	logger.Printf("Agent started: addr=%s, city=%s", listenAddr.String(), config.City)
 
 	// start gossip protocol
 	ps, err := pubsub.NewGossipSub(context.Background(), host)
@@ -139,6 +184,19 @@ func NewAgent(logger *log.Logger, config *Config) (*Agent, error) {
 	return a, nil
 }
 
+func query(url string) string {
+	resp, err := http.Get(url)
+	if err != nil {
+		panic(err)
+	}
+	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		panic(err)
+	}
+	sb := string(body)
+	return sb
+}
+
 func (a *Agent) Stop() {
 	a.host.Close()
 }
@@ -155,7 +213,10 @@ func (a *Agent) setupHttp() {
 	e.HideBanner = true
 	e.Logger.SetOutput(ioutil.Discard)
 
-	e.GET("/", func(c echo.Context) error {
+	e.GET("/system/city", func(c echo.Context) error {
+		return c.String(http.StatusOK, a.config.City)
+	})
+	e.GET("/publish", func(c echo.Context) error {
 		a.publish()
 		return c.JSON(http.StatusOK, map[string]interface{}{})
 	})
@@ -199,4 +260,55 @@ func readLoop(sub *pubsub.Subscription, handler func(obj []byte)) {
 			handler(msg.Data)
 		}
 	}()
+}
+
+type LatencyData struct {
+	PingData map[string]map[string]struct {
+		Avg string
+	}
+	SourcesList []struct {
+		Id   string
+		Name string
+	}
+	sources map[string]string
+}
+
+func (l *LatencyData) getRandomCity() string {
+	n := rand.Int() % len(l.SourcesList)
+	city := l.SourcesList[n].Name
+	return city
+}
+
+func (l *LatencyData) checkCity(from string) bool {
+	_, ok := l.sources[from]
+	return ok
+}
+
+func (l *LatencyData) FindLatency(from, to string) time.Duration {
+	fromID := l.sources[from]
+	toID := l.sources[to]
+
+	avg := l.PingData[fromID][toID].Avg
+	if avg == "" {
+		return 0
+	}
+	dur, err := time.ParseDuration(avg + "ms")
+	if err != nil {
+		fmt.Println(from, to, fromID, toID, avg)
+		panic(err)
+	}
+	return dur
+}
+
+func readLatency() *LatencyData {
+	var latencyData LatencyData
+	if err := json.Unmarshal([]byte(latencyDataRaw), &latencyData); err != nil {
+		panic(err)
+	}
+
+	latencyData.sources = map[string]string{}
+	for _, i := range latencyData.SourcesList {
+		latencyData.sources[i.Name] = i.Id
+	}
+	return &latencyData
 }

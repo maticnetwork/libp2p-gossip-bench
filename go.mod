@@ -4,6 +4,7 @@ go 1.17
 
 require (
 	github.com/Shopify/toxiproxy/v2 v2.0.0-00010101000000-000000000000
+	github.com/hashicorp/go-sockaddr v1.0.0
 	github.com/ipfs/go-log/v2 v2.3.0
 	github.com/labstack/echo/v4 v4.6.1
 	github.com/libp2p/go-libp2p v0.16.0
@@ -28,6 +29,7 @@ require (
 	github.com/google/gopacket v1.1.19 // indirect
 	github.com/gorilla/mux v1.8.0 // indirect
 	github.com/gorilla/websocket v1.4.2 // indirect
+	github.com/hashicorp/errwrap v1.0.0 // indirect
 	github.com/hashicorp/golang-lru v0.5.4 // indirect
 	github.com/huin/goupnp v1.0.2 // indirect
 	github.com/ipfs/go-cid v0.0.7 // indirect
