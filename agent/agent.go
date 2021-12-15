@@ -2,7 +2,9 @@ package agent
 
 import (
 	"context"
+	"crypto/sha256"
 	_ "embed"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
@@ -10,6 +12,7 @@ import (
 	"math/rand"
 	"net"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -43,6 +46,7 @@ type Config struct {
 	HttpAddr         *net.TCPAddr
 	RendezvousString string
 	City             string
+	ID               string
 }
 
 func DefaultConfig() *Config {
@@ -89,7 +93,6 @@ func NewAgent(logger *log.Logger, config *Config) (*Agent, error) {
 
 			for {
 				link := <-linkCh
-				fmt.Println(link)
 
 				go func(link *toxiproxy.ToxicLink) {
 
@@ -151,7 +154,7 @@ func NewAgent(logger *log.Logger, config *Config) (*Agent, error) {
 	go func() {
 		for {
 			peer := <-peerChan
-			logger.Printf("Found peer: peer=%s", peer)
+			logger.Printf("[INFO] Found peer: peer=%s", peer)
 
 			if err := host.Connect(context.Background(), peer); err != nil {
 				fmt.Println("Connection failed:", err)
@@ -177,11 +180,20 @@ func NewAgent(logger *log.Logger, config *Config) (*Agent, error) {
 	if err != nil {
 		return nil, err
 	}
-	readLoop(sub, func(data []byte) {
-		fmt.Println(data)
+	readLoop(sub, func(msg *Msg) {
+		elapsed := time.Since(msg.Time)
+
+		logger.Printf("=> '%s' '%s' '%s' '%s' '%s'", time.Now(), msg.From, msg.Hash, msg.Time, elapsed)
 	})
 
 	return a, nil
+}
+
+type Msg struct {
+	From string
+	Time time.Time
+	Data string // Just some bulk random data
+	Hash string
 }
 
 func query(url string) string {
@@ -201,11 +213,34 @@ func (a *Agent) Stop() {
 	a.host.Close()
 }
 
-func (a *Agent) publish() {
-	data := make([]byte, 1024)
+func (a *Agent) publish(size int) {
+	now := time.Now()
+
+	data := make([]byte, size)
 	rand.Read(data)
 
-	a.topic.Publish(context.Background(), data)
+	hash := hashit(data)
+
+	a.logger.Printf("Publish '%s' '%s'", hash, now)
+
+	msg := &Msg{
+		From: a.config.ID,
+		Time: now,
+		Data: string(data),
+		Hash: hash,
+	}
+	raw, err := json.Marshal(msg)
+	if err != nil {
+		panic(err)
+	}
+	a.topic.Publish(context.Background(), raw)
+}
+
+func hashit(b []byte) string {
+	h := sha256.New()
+	h.Write(b)
+	dst := h.Sum(nil)
+	return hex.EncodeToString(dst)
 }
 
 func (a *Agent) setupHttp() {
@@ -216,8 +251,21 @@ func (a *Agent) setupHttp() {
 	e.GET("/system/city", func(c echo.Context) error {
 		return c.String(http.StatusOK, a.config.City)
 	})
+	e.GET("/system/id", func(c echo.Context) error {
+		return c.String(http.StatusOK, a.config.ID)
+	})
 	e.GET("/publish", func(c echo.Context) error {
-		a.publish()
+
+		size := 1024
+		if sizeStr := c.QueryParam("size"); sizeStr != "" {
+			s, err := strconv.Atoi(sizeStr)
+			if err != nil {
+				panic(err)
+			}
+			size = s
+		}
+
+		a.publish(size)
 		return c.JSON(http.StatusOK, map[string]interface{}{})
 	})
 
@@ -250,14 +298,18 @@ func initMDNS(peerhost host.Host, rendezvous string) chan peer.AddrInfo {
 	return n.PeerChan
 }
 
-func readLoop(sub *pubsub.Subscription, handler func(obj []byte)) {
+func readLoop(sub *pubsub.Subscription, handler func(msg *Msg)) {
 	go func() {
 		for {
-			msg, err := sub.Next(context.Background())
+			raw, err := sub.Next(context.Background())
 			if err != nil {
 				continue
 			}
-			handler(msg.Data)
+			var msg *Msg
+			if err := json.Unmarshal(raw.Data, &msg); err != nil {
+				panic(err)
+			}
+			handler(msg)
 		}
 	}()
 }
