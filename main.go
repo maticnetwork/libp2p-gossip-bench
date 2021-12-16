@@ -18,6 +18,7 @@ import (
 
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/client"
+	"github.com/google/uuid"
 
 	"github.com/hashicorp/go-sockaddr/template"
 	"github.com/maticnetwork/libp2p-gossip-bench/agent"
@@ -62,12 +63,12 @@ func gatherCmd() {
 	}
 
 	containers := getGossipContainers()
-	for _, c := range containers {
-		fmt.Println(c)
-
-		ip := getIP(c)
-		url := "http://" + ip + ":7000/system/id"
-		hostname := query(url)
+	for indx, c := range containers {
+		url := "http://127.0.0.1:" + strconv.Itoa(40000+indx) + "/system/id"
+		hostname, err := query(url)
+		if err != nil {
+			continue
+		}
 		fmt.Println(hostname)
 
 		out, err := cli.ContainerLogs(ctx, c.ID, types.ContainerLogsOptions{ShowStdout: true})
@@ -107,10 +108,6 @@ func getGossipContainers() []types.Container {
 	return gossipContainers
 }
 
-func getIP(container types.Container) string {
-	return container.NetworkSettings.Networks["bridge"].IPAddress
-}
-
 func publishCmd() {
 	var numPublishers uint64
 	var numMessages uint64
@@ -131,35 +128,41 @@ func publishCmd() {
 	}
 
 	var wg sync.WaitGroup
-	for i := 0; i < int(numPublishers); i++ {
-		wg.Add(1)
 
-		ip := getIP(gossipContainers[i])
-		go func(ip string) {
+	numConcurrent := 20
+	workCh := make(chan string, numConcurrent)
+
+	for i := 0; i < numConcurrent; i++ {
+		wg.Add(1)
+		go func() {
 			defer wg.Done()
 
-			for j := uint64(0); j < numMessages; j++ {
-				url := "http://" + ip + ":7000/publish?size=" + strconv.Itoa(int(size))
+			for url := range workCh {
 				fmt.Println(url)
 				fmt.Println(query(url))
 			}
-		}(ip)
+		}()
 	}
 
+	for i := 40000; i < 40000+int(numPublishers); i++ {
+		url := "http://localhost:" + strconv.Itoa(i) + "/publish?size=" + strconv.Itoa(int(size))
+		workCh <- url
+	}
+	close(workCh)
 	wg.Wait()
 }
 
-func query(url string) string {
+func query(url string) (string, error) {
 	resp, err := http.Get(url)
 	if err != nil {
-		panic(err)
+		return "", err
 	}
 	body, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
-		panic(err)
+		return "", err
 	}
 	sb := string(body)
-	return sb
+	return sb, nil
 }
 
 func serverCmd() {
@@ -180,11 +183,7 @@ func serverCmd() {
 	config := agent.DefaultConfig()
 	config.MaxPeers = maxPeers
 
-	hostname, err := os.Hostname()
-	if err != nil {
-		panic(err)
-	}
-	config.ID = hostname
+	config.ID = uuid.New().String()
 
 	config.City = city
 	if config.Addr, err = getTCPAddr(bindAddr); err != nil {

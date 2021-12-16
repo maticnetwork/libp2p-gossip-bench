@@ -101,18 +101,32 @@ func NewAgent(logger *log.Logger, config *Config) (*Agent, error) {
 					name = strings.TrimSuffix(name, "upstream")
 					name = strings.TrimSuffix(name, "downstream")
 
+					// fmt.Println(name)
+
 					// ping that ip in name on the http port to get the name of the destination city
-					ip := strings.Split(name, ":")[0]
-					dest := query("http://" + ip + ":7000/system/city")
-					proxyLatency := latency.FindLatency(config.City, dest)
 
-					logger.Printf("[INFO]: Add latency: ip=%s, city=%s, latency=%s", name, dest, proxyLatency)
+					// the ip we get from name is the bind-address which is 300x, the one from the http port is 400x
+					ip := strings.Replace(name, "300", "400", -1)
 
-					// latency := 1 * time.Second
+					var latencyF int64
+
+					dest, err := query("http://" + ip + "/system/city")
+					if err != nil {
+						logger.Printf("[INFO]: Add latency: %s default", name)
+						latencyF = time.Duration(200 * time.Millisecond).Milliseconds()
+					} else {
+						proxyLatency := latency.FindLatency(config.City, dest)
+
+						logger.Printf("[INFO]: Add latency: ip=%s, city=%s, latency=%s", name, dest, proxyLatency)
+						// logger.Printf("[INFO]: Add latency: ip=%s", name)
+
+						latencyF = proxyLatency.Milliseconds()
+					}
+					//latency := time.Duration(300 * time.Millisecond).Milliseconds()
 
 					link.AddToxic(&toxics.ToxicWrapper{
 						Toxic: &toxics.LatencyToxic{
-							Latency: proxyLatency.Milliseconds(),
+							Latency: latencyF,
 						},
 						Type:       "latency",
 						Direction:  link.Direction(),
@@ -166,7 +180,7 @@ func NewAgent(logger *log.Logger, config *Config) (*Agent, error) {
 
 			numPeers := len(host.Network().Peers())
 			if config.MaxPeers != -1 {
-				if numPeers >= int(config.MaxPeers) {
+				if numPeers > int(config.MaxPeers) {
 					logger.Printf("[INFO]: Skip peer")
 					continue
 				}
@@ -212,17 +226,17 @@ type Msg struct {
 	Hash string
 }
 
-func query(url string) string {
+func query(url string) (string, error) {
 	resp, err := http.Get(url)
 	if err != nil {
-		panic(err)
+		return "", err
 	}
 	body, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
-		panic(err)
+		return "", err
 	}
 	sb := string(body)
-	return sb
+	return sb, nil
 }
 
 func (a *Agent) Stop() {
@@ -289,7 +303,7 @@ func (a *Agent) setupHttp() {
 
 	go func() {
 		a.logger.Printf("Start http server: addr=%s", a.config.HttpAddr.String())
-		e.Logger.Fatal(e.Start(a.config.HttpAddr.String()))
+		fmt.Println(e.Start(a.config.HttpAddr.String()))
 	}()
 }
 
