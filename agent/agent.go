@@ -50,6 +50,7 @@ type Config struct {
 	City             string
 	ID               string
 	MaxPeers         int64
+	MinInterval      int64
 }
 
 func DefaultConfig() *Config {
@@ -241,6 +242,19 @@ func NewAgent(logger *log.Logger, config *Config) (*Agent, error) {
 
 		logger.Printf("=> '%s' '%d' '%s' '%s' '%s' '%s'", elapsed, len(host.Network().Peers()), time.Now(), msg.From, msg.Hash, msg.Time)
 	})
+
+	if config.MinInterval != -1 {
+		go func() {
+			for {
+				now := time.Now()
+				if now.Minute()&int(config.MinInterval) == 0 {
+					logger.Printf("[INFO]: Public at interval %d %d", config.MinInterval, now.Minute())
+					go a.publish(100)
+				}
+				time.Sleep(1 * time.Minute)
+			}
+		}()
+	}
 
 	return a, nil
 }

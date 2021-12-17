@@ -176,7 +176,7 @@ func query(url string) (string, error) {
 
 func serverCmd() {
 	var bindAddr, proxyAddr, httpAddr, rendezvousString, city string
-	var maxPeers int64
+	var maxPeers, minInterval int64
 
 	flag.StringVar(&bindAddr, "bind-addr", "0.0.0.0:3000", "")
 	flag.StringVar(&proxyAddr, "proxy-addr", "", "")
@@ -184,6 +184,7 @@ func serverCmd() {
 	flag.StringVar(&httpAddr, "http-addr", "", "")
 	flag.StringVar(&city, "city", "", "")
 	flag.Int64Var(&maxPeers, "max-peers", -1, "")
+	flag.Int64Var(&minInterval, "min-interval", -1, "")
 
 	flag.Parse()
 
@@ -191,6 +192,7 @@ func serverCmd() {
 
 	config := agent.DefaultConfig()
 	config.MaxPeers = maxPeers
+	config.MinInterval = minInterval
 
 	config.ID = uuid.New().String()
 
