@@ -2,6 +2,7 @@ package toxiproxy
 
 import (
 	"errors"
+	"fmt"
 	"net"
 	"sync"
 
@@ -98,6 +99,8 @@ func (proxy *Proxy) listen() error {
 	}
 	proxy.Listen = proxy.listener.Addr().String()
 	proxy.started <- nil
+
+	fmt.Printf("Started proxy: %s %s %s\n", proxy.Name, proxy.Listen, proxy.Upstream)
 
 	logrus.WithFields(logrus.Fields{
 		"name":     proxy.Name,

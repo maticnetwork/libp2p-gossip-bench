@@ -129,26 +129,35 @@ func publishCmd() {
 
 	var wg sync.WaitGroup
 
-	numConcurrent := 20
-	workCh := make(chan string, numConcurrent)
+	/*
+		numConcurrent := 20
+		workCh := make(chan string, numConcurrent)
 
-	for i := 0; i < numConcurrent; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		for i := 0; i < numConcurrent; i++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
 
-			for url := range workCh {
-				fmt.Println(url)
-				fmt.Println(query(url))
-			}
-		}()
-	}
+				for url := range workCh {
+					fmt.Println(url)
+					fmt.Println(query(url))
+				}
+			}()
+		}
+	*/
 
 	for i := 40000; i < 40000+int(numPublishers); i++ {
-		url := "http://localhost:" + strconv.Itoa(i) + "/publish?size=" + strconv.Itoa(int(size))
-		workCh <- url
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+
+			url := "http://localhost:" + strconv.Itoa(i) + "/publish?size=" + strconv.Itoa(int(size))
+			resp, err := query(url)
+			fmt.Println(url, resp, err)
+			// workCh <- url
+		}(i)
 	}
-	close(workCh)
+	// close(workCh)
 	wg.Wait()
 }
 
