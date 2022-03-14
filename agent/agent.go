@@ -14,7 +14,6 @@ import (
 	"net/http"
 	"os"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/labstack/echo/v4"
@@ -134,45 +133,7 @@ func NewAgent(logger *log.Logger, config *Config) (*Agent, error) {
 	// and use the normal connection.
 	// I think this should work fine
 
-	go func() {
-		// pick up every link created in the proxy and add the specific latency toxic
-		linkCh := make(chan string, 1000)
-
-		for {
-			link := <-linkCh
-
-			go func() {
-
-				name := link
-				name = strings.TrimSuffix(name, "upstream")
-				name = strings.TrimSuffix(name, "downstream")
-
-				// fmt.Println(name)
-
-				// ping that ip in name on the http port to get the name of the destination city
-
-				// the ip we get from name is the bind-address which is 300x, the one from the http port is 400x
-				ip := strings.Replace(name, ":30", ":40", -1)
-
-				var latencyF int64
-
-				dest, err := query("http://" + ip + "/system/city")
-				if err != nil {
-					logger.Printf("[INFO]: Add latency: name=%s, ip=%s default", name, ip)
-					latencyF = time.Duration(100 * time.Millisecond).Milliseconds()
-				} else {
-					proxyLatency := latency.FindLatency(config.City, dest)
-
-					logger.Printf("[INFO]: Add latency: name=%s, ip=%s, city=%s, latency=%s", name, ip, dest, proxyLatency)
-
-					latencyF = proxyLatency.Milliseconds()
-				}
-
-				// TODO: handle latency here
-				logger.Printf("[INFO]: Latency: %s", latencyF)
-			}()
-		}
-	}()
+	// TODO: handle latency here
 
 	logger.Printf("Agent started: addr=%s, city=%s", listenAddr.String(), config.City)
 
