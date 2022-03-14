@@ -1,7 +1,0 @@
-# goreleaser output directory
-dist/
-
-# go mod dependencies
-vendor/
-
-tmp/

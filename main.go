@@ -1,8 +1,6 @@
 package main
 
 import (
-	"bytes"
-	"context"
 	"flag"
 	"fmt"
 	"io/ioutil"
@@ -11,19 +9,14 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"strconv"
 	"sync"
 	"syscall"
 
-	"github.com/docker/docker/api/types"
-	"github.com/docker/docker/client"
 	"github.com/google/uuid"
 
 	"github.com/hashicorp/go-sockaddr/template"
 	"github.com/maticnetwork/libp2p-gossip-bench/agent"
-
-	"github.com/docker/docker/pkg/stdcopy"
 )
 
 func main() {
@@ -55,57 +48,6 @@ func gatherCmd() {
 	if err := os.Mkdir(output, 0755); err != nil {
 		panic(err)
 	}
-
-	ctx := context.Background()
-	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
-	if err != nil {
-		panic(err)
-	}
-
-	containers := getGossipContainers()
-	for indx, c := range containers {
-		url := "http://127.0.0.1:" + strconv.Itoa(40000+indx) + "/system/id"
-		hostname, err := query(url)
-		if err != nil {
-			continue
-		}
-		fmt.Println(hostname)
-
-		out, err := cli.ContainerLogs(ctx, c.ID, types.ContainerLogsOptions{ShowStdout: true})
-		if err != nil {
-			panic(err)
-		}
-
-		buf := bytes.NewBuffer([]byte{})
-		if _, err := stdcopy.StdCopy(buf, os.Stderr, out); err != nil {
-			panic(err)
-		}
-
-		if err := os.WriteFile(filepath.Join(output, hostname), buf.Bytes(), 0644); err != nil {
-			panic(err)
-		}
-	}
-}
-
-func getGossipContainers() []types.Container {
-	ctx := context.Background()
-	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
-	if err != nil {
-		panic(err)
-	}
-
-	containers, err := cli.ContainerList(ctx, types.ContainerListOptions{})
-	if err != nil {
-		panic(err)
-	}
-
-	gossipContainers := []types.Container{}
-	for _, container := range containers {
-		if container.Labels["gossip"] == "true" {
-			gossipContainers = append(gossipContainers, container)
-		}
-	}
-	return gossipContainers
 }
 
 func publishCmd() {
@@ -118,33 +60,11 @@ func publishCmd() {
 	flag.Uint64Var(&size, "size", 100, "")
 	flag.Parse()
 
-	gossipContainers := getGossipContainers()
-
 	if numPublishers == 0 {
 		panic("no publishers in args")
 	}
-	if int(numPublishers) > len(gossipContainers) {
-		panic(fmt.Sprintf("more num publishers than available containers %d %d", numPublishers, len(gossipContainers)))
-	}
 
 	var wg sync.WaitGroup
-
-	/*
-		numConcurrent := 20
-		workCh := make(chan string, numConcurrent)
-
-		for i := 0; i < numConcurrent; i++ {
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
-
-				for url := range workCh {
-					fmt.Println(url)
-					fmt.Println(query(url))
-				}
-			}()
-		}
-	*/
 
 	for i := 40000; i < 40000+int(numPublishers); i++ {
 		wg.Add(1)
@@ -202,11 +122,6 @@ func serverCmd() {
 	}
 	if httpAddr != "" {
 		if config.HttpAddr, err = getTCPAddr(httpAddr); err != nil {
-			panic(err)
-		}
-	}
-	if proxyAddr != "" {
-		if config.ProxyAddr, err = getTCPAddr(proxyAddr); err != nil {
 			panic(err)
 		}
 	}

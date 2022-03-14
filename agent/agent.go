@@ -14,11 +14,8 @@ import (
 	"net/http"
 	"os"
 	"strconv"
-	"strings"
 	"time"
 
-	"github.com/Shopify/toxiproxy/v2"
-	"github.com/Shopify/toxiproxy/v2/toxics"
 	"github.com/labstack/echo/v4"
 	"github.com/sirupsen/logrus"
 
@@ -38,13 +35,11 @@ type Agent struct {
 	gossipSub *pubsub.PubSub
 	config    *Config
 	topic     *pubsub.Topic
-	sidecar   *toxiproxy.ApiServer
 	latency   *LatencyData
 }
 
 type Config struct {
 	Addr             *net.TCPAddr
-	ProxyAddr        *net.TCPAddr
 	HttpAddr         *net.TCPAddr
 	RendezvousString string
 	City             string
@@ -72,13 +67,12 @@ func NewAgent(logger *log.Logger, config *Config) (*Agent, error) {
 	}
 
 	addrsFactory := func(addrs []multiaddr.Multiaddr) []multiaddr.Multiaddr {
-		if config.ProxyAddr != nil {
-			addr, _ := multiaddr.NewMultiaddr(fmt.Sprintf("/ip4/%s/tcp/%d", config.ProxyAddr.IP.String(), config.ProxyAddr.Port))
+		addr, _ := multiaddr.NewMultiaddr(fmt.Sprintf("/ip4/%s/tcp/%d", config.Addr.IP.String(), config.Addr.Port))
 
-			if addr != nil {
-				addrs = []multiaddr.Multiaddr{addr}
-			}
+		if addr != nil {
+			addrs = []multiaddr.Multiaddr{addr}
 		}
+
 		return addrs
 	}
 
@@ -124,82 +118,22 @@ func NewAgent(logger *log.Logger, config *Config) (*Agent, error) {
 	}
 
 	// start the proxy
-	if config.ProxyAddr != nil {
-		logger.Printf("[INFO]: Proxy/NAT %s", config.ProxyAddr.String())
+	logger.Printf("[INFO]: Address: %s", config.Addr.String())
 
-		logrus.SetFormatter(&logrus.JSONFormatter{})
+	logrus.SetFormatter(&logrus.JSONFormatter{})
 
-		// Output to stdout instead of the default stderr
-		// Can be any io.Writer, see below for File example
-		logrus.SetOutput(os.Stdout)
+	// Output to stdout instead of the default stderr
+	// Can be any io.Writer, see below for File example
+	logrus.SetOutput(os.Stdout)
 
-		// Only log the warning severity or above.
-		logrus.SetLevel(logrus.WarnLevel)
+	// Only log the warning severity or above.
+	logrus.SetLevel(logrus.WarnLevel)
 
-		proxy := toxiproxy.NewProxy()
-		proxy.Name = "proxy"
-		proxy.Listen = config.ProxyAddr.String()
-		proxy.Upstream = config.Addr.String()
+	// In 5% of the cases not sure why but this port is already in use, then, remove the proxy
+	// and use the normal connection.
+	// I think this should work fine
 
-		sidecar := toxiproxy.NewServer()
-		if err := sidecar.Collection.Add(proxy, true); err != nil {
-			// In 5% of the cases not sure why but this port is already in use, then, remove the proxy
-			// and use the normal connection.
-			// I think this should work fine
-			config.ProxyAddr = nil
-			logger.Printf("[INFO]: Fallback proxy")
-		} else {
-			go func() {
-				// pick up every link created in the proxy and add the specific latency toxic
-				linkCh := make(chan *toxiproxy.ToxicLink, 1000)
-				proxy.Toxics.LinkCh = linkCh
-
-				for {
-					link := <-linkCh
-
-					go func(link *toxiproxy.ToxicLink) {
-
-						name := link.Name()
-						name = strings.TrimSuffix(name, "upstream")
-						name = strings.TrimSuffix(name, "downstream")
-
-						// fmt.Println(name)
-
-						// ping that ip in name on the http port to get the name of the destination city
-
-						// the ip we get from name is the bind-address which is 300x, the one from the http port is 400x
-						ip := strings.Replace(name, ":30", ":40", -1)
-
-						var latencyF int64
-
-						dest, err := query("http://" + ip + "/system/city")
-						if err != nil {
-							logger.Printf("[INFO]: Add latency: name=%s, ip=%s default", name, ip)
-							latencyF = time.Duration(100 * time.Millisecond).Milliseconds()
-						} else {
-							proxyLatency := latency.FindLatency(config.City, dest)
-
-							logger.Printf("[INFO]: Add latency: name=%s, ip=%s, city=%s, latency=%s", name, ip, dest, proxyLatency)
-							// logger.Printf("[INFO]: Add latency: ip=%s", name)
-
-							latencyF = proxyLatency.Milliseconds()
-						}
-						//latency := time.Duration(300 * time.Millisecond).Milliseconds()
-
-						link.AddToxic(&toxics.ToxicWrapper{
-							Toxic: &toxics.LatencyToxic{
-								Latency: latencyF,
-							},
-							Type:       "latency",
-							Direction:  link.Direction(),
-							BufferSize: 1024,
-							Toxicity:   1,
-						})
-					}(link)
-				}
-			}()
-		}
-	}
+	// TODO: handle latency here
 
 	logger.Printf("Agent started: addr=%s, city=%s", listenAddr.String(), config.City)
 
@@ -406,10 +340,7 @@ func initMDNS(peerhost host.Host, rendezvous string) chan peer.AddrInfo {
 	n.PeerChan = make(chan peer.AddrInfo)
 
 	// An hour might be a long long period in practical applications. But this is fine for us
-	ser := NewMdnsService(peerhost, rendezvous, n)
-	if err := ser.Start(); err != nil {
-		panic(err)
-	}
+
 	return n.PeerChan
 }
 
