@@ -23,6 +23,7 @@ import (
 	"github.com/libp2p/go-libp2p-core/host"
 	"github.com/libp2p/go-libp2p-core/peer"
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
+	configLibp2p "github.com/libp2p/go-libp2p/config"
 	"github.com/multiformats/go-multiaddr"
 )
 
@@ -46,6 +47,7 @@ type Config struct {
 	ID               string
 	MaxPeers         int64
 	MinInterval      int64
+	Transport        configLibp2p.TptC
 }
 
 func DefaultConfig() *Config {
@@ -79,6 +81,7 @@ func NewAgent(logger *log.Logger, config *Config) (*Agent, error) {
 	host, err := libp2p.New(
 		libp2p.ListenAddrs(listenAddr),
 		libp2p.AddrsFactory(addrsFactory),
+		libp2p.Transport(config.Transport),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create libp2p stack: %v", err)
