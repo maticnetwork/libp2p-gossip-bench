@@ -1,158 +1,94 @@
 package main
 
 import (
-	"flag"
 	"fmt"
-	"io/ioutil"
-	"log"
-	"net"
-	"net/http"
+	"math/rand"
 	"os"
 	"os/signal"
 	"strconv"
 	"sync"
 	"syscall"
+	"time"
 
-	"github.com/google/uuid"
-
-	"github.com/hashicorp/go-sockaddr/template"
-	"github.com/maticnetwork/libp2p-gossip-bench/agent"
+	"github.com/hashicorp/go-hclog"
+	"github.com/maticnetwork/libp2p-gossip-bench/latency"
+	"github.com/maticnetwork/libp2p-gossip-bench/network"
 )
 
 func main() {
-	cmd := os.Args[1]
-	os.Args = os.Args[1:] // if we dont do this the flags are not parsed correctly
+	rand.Seed(time.Now().Unix())
 
-	if cmd == "server" {
-		serverCmd()
-	} else if cmd == "publish" {
-		publishCmd()
-	} else if cmd == "gather" {
-		gatherCmd()
-	} else {
-		panic("NOT FOUND " + cmd)
+	size := 200
+	gossipSize := 100
+	msgSize := 1024
+	maxPeers := 10
+
+	m := &latency.Mesh{
+		Latency:  latency.ReadLatencyData(),
+		Logger:   hclog.New(&hclog.LoggerOptions{Output: os.Stdout}),
+		Port:     30000,
+		MaxPeers: maxPeers,
 	}
-}
-
-func gatherCmd() {
-	var output string
-
-	flag.StringVar(&output, "output", "", "")
-	flag.Parse()
-
-	output = "test-" + output
-	if _, err := os.Stat(output); !os.IsNotExist(err) {
-		panic("folder exists")
+	m.Manager = &network.Manager{
+		QueryNetwork: m.QueryLatencies,
 	}
 
-	if err := os.Mkdir(output, 0755); err != nil {
-		panic(err)
-	}
-}
-
-func publishCmd() {
-	var numPublishers uint64
-	var numMessages uint64
-	var size uint64
-
-	flag.Uint64Var(&numPublishers, "num-publishers", 0, "")
-	flag.Uint64Var(&numMessages, "num-messages", 1, "")
-	flag.Uint64Var(&size, "size", 100, "")
-	flag.Parse()
-
-	if numPublishers == 0 {
-		panic("no publishers in args")
+	for i := 0; i < size; i++ {
+		m.RunServer("srv_" + strconv.Itoa(i))
 	}
 
+	// join them in a line
 	var wg sync.WaitGroup
-
-	for i := 40000; i < 40000+int(numPublishers); i++ {
+	for i := 0; i < size-1; i++ {
 		wg.Add(1)
-		go func(i int) {
-			defer wg.Done()
 
-			url := "http://localhost:" + strconv.Itoa(i) + "/publish?size=" + strconv.Itoa(int(size))
-			resp, err := query(url)
-			fmt.Println(url, resp, err)
-			// workCh <- url
+		go func(i int) {
+			m.Join("srv_"+strconv.Itoa(i), "srv_"+strconv.Itoa(i+1))
+			wg.Done()
 		}(i)
 	}
-	// close(workCh)
 	wg.Wait()
-}
 
-func query(url string) (string, error) {
-	resp, err := http.Get(url)
-	if err != nil {
-		return "", err
+	time.Sleep(1 * time.Minute)
+
+	// m.waitForPeers(3)
+
+	for i := 0; i < gossipSize; i++ {
+		m.Gossip("srv_"+strconv.Itoa(i), msgSize)
 	}
-	body, err := ioutil.ReadAll(resp.Body)
-	if err != nil {
-		return "", err
+	for i := 0; i < gossipSize; i++ {
+		m.Gossip("srv_"+strconv.Itoa(i), msgSize)
 	}
-	sb := string(body)
-	return sb, nil
-}
 
-func serverCmd() {
-	var bindAddr, proxyAddr, httpAddr, rendezvousString, city string
-	var maxPeers, minInterval int64
+	time.Sleep(1 * time.Second)
 
-	flag.StringVar(&bindAddr, "bind-addr", "0.0.0.0:3000", "")
-	flag.StringVar(&proxyAddr, "proxy-addr", "", "")
-	flag.StringVar(&rendezvousString, "rendezvous", "meetme", "")
-	flag.StringVar(&httpAddr, "http-addr", "", "")
-	flag.StringVar(&city, "city", "", "")
-	flag.Int64Var(&maxPeers, "max-peers", -1, "")
-	flag.Int64Var(&minInterval, "min-interval", -1, "")
-
-	flag.Parse()
-
-	var err error
-
-	config := agent.DefaultConfig()
-	config.MaxPeers = maxPeers
-	config.MinInterval = minInterval
-
-	config.ID = uuid.New().String()
-
-	config.City = city
-	if config.Addr, err = getTCPAddr(bindAddr); err != nil {
-		panic(err)
-	}
-	if httpAddr != "" {
-		if config.HttpAddr, err = getTCPAddr(httpAddr); err != nil {
-			panic(err)
+	compute := func(show bool) {
+		total := 0
+		for _, p := range m.Servers {
+			if show {
+				fmt.Println(p.City, p.NumTopics(), p.NumPeers())
+			}
+			total += p.NumTopics()
 		}
+		fmt.Println(total / len(m.Servers))
 	}
 
-	config.RendezvousString = rendezvousString
-	logger := log.New(os.Stdout, "", 0)
+	compute(false)
 
-	a, err := agent.NewAgent(logger, config)
-	if err != nil {
-		panic(err)
-	}
-	handleSignals(a)
+	time.Sleep(1 * time.Second)
+
+	compute(false)
+
+	time.Sleep(1 * time.Second)
+
+	compute(false)
+
+	// 50 nodos, full, 1 second 95%
+	//
+	// handleSignals()
 }
 
-func getTCPAddr(raw string) (*net.TCPAddr, error) {
-	addr, err := template.Parse(raw)
-	if err != nil {
-		return nil, err
-	}
-	host, portStr, err := net.SplitHostPort(addr)
-	if err != nil {
-		return nil, err
-	}
-	port, err := strconv.Atoi(portStr)
-	if err != nil {
-		return nil, err
-	}
-	return &net.TCPAddr{IP: net.ParseIP(host), Port: port}, nil
-}
-
-func handleSignals(a *agent.Agent) {
+func handleSignals() {
 	signalCh := make(chan os.Signal, 4)
 	signal.Notify(signalCh, os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
 
