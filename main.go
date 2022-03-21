@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"log"
 	"math/rand"
 	"os"
 	"os/signal"
@@ -10,7 +11,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/hashicorp/go-hclog"
 	"github.com/maticnetwork/libp2p-gossip-bench/latency"
 	"github.com/maticnetwork/libp2p-gossip-bench/network"
 )
@@ -23,15 +23,15 @@ func main() {
 	msgSize := 1024
 	maxPeers := 10
 
+	log := log.New(os.Stdout, "Mesh: ", log.Flags())
+
 	m := &latency.Mesh{
 		Latency:  latency.ReadLatencyData(),
-		Logger:   hclog.New(&hclog.LoggerOptions{Output: os.Stdout}),
+		Logger:   log,
 		Port:     30000,
 		MaxPeers: maxPeers,
 	}
-	m.Manager = &network.Manager{
-		QueryNetwork: m.QueryLatencies,
-	}
+	m.Manager = &network.Manager{}
 
 	for i := 0; i < size; i++ {
 		m.RunServer("srv_" + strconv.Itoa(i))
@@ -64,13 +64,12 @@ func main() {
 
 	compute := func(show bool) {
 		total := 0
-		for _, p := range m.Servers {
+		for _, p := range m.Agents {
 			if show {
-				fmt.Println(p.City, p.NumTopics(), p.NumPeers())
+				fmt.Println(p.Config.City)
 			}
-			total += p.NumTopics()
 		}
-		fmt.Println(total / len(m.Servers))
+		fmt.Println(total / len(m.Agents))
 	}
 
 	compute(false)

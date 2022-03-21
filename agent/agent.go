@@ -27,16 +27,15 @@ import (
 	"github.com/multiformats/go-multiaddr"
 )
 
-//go:embed latencies.json
 var latencyDataRaw string
 
 type Agent struct {
-	host      host.Host
-	logger    *log.Logger
-	gossipSub *pubsub.PubSub
-	config    *Config
-	topic     *pubsub.Topic
-	latency   *LatencyData
+	Host      host.Host
+	Logger    *log.Logger
+	GossipSub *pubsub.PubSub
+	Config    *Config
+	Topic     *pubsub.Topic
+	Latency   *LatencyData
 }
 
 type Config struct {
@@ -90,7 +89,6 @@ func NewAgent(logger *log.Logger, config *Config) (*Agent, error) {
 	// start gossip protocol
 	psOpts := []pubsub.Option{
 		pubsub.WithMessageSignaturePolicy(pubsub.StrictNoSign),
-		//pubsub.WithNoAuthor(),
 		pubsub.WithPeerOutboundQueueSize(pubsubQueueSize),
 		pubsub.WithValidateQueueSize(pubsubQueueSize),
 		pubsub.WithGossipSubParams(pubsubGossipParam()),
@@ -101,10 +99,10 @@ func NewAgent(logger *log.Logger, config *Config) (*Agent, error) {
 	}
 
 	a := &Agent{
-		logger:    logger,
-		host:      host,
-		gossipSub: ps,
-		config:    config,
+		Logger:    logger,
+		Host:      host,
+		GossipSub: ps,
+		Config:    config,
 	}
 
 	if config.HttpAddr != nil {
@@ -167,10 +165,10 @@ func NewAgent(logger *log.Logger, config *Config) (*Agent, error) {
 		}
 	}()
 
-	if a.topic, err = ps.Join("topic"); err != nil {
+	if a.Topic, err = ps.Join("topic"); err != nil {
 		return nil, err
 	}
-	sub, err := a.topic.Subscribe()
+	sub, err := a.Topic.Subscribe()
 	if err != nil {
 		return nil, err
 	}
@@ -258,7 +256,7 @@ func query(url string) (string, error) {
 }
 
 func (a *Agent) Stop() {
-	a.host.Close()
+	a.Host.Close()
 }
 
 func (a *Agent) publish(size int) {
@@ -269,10 +267,10 @@ func (a *Agent) publish(size int) {
 
 	hash := hashit(data)
 
-	a.logger.Printf("Publish '%s' '%s'", hash, now)
+	a.Logger.Printf("Publish '%s' '%s'", hash, now)
 
 	msg := &Msg{
-		From: a.config.ID,
+		From: a.Config.ID,
 		Time: now,
 		Data: string(data),
 		Hash: hash,
@@ -281,7 +279,7 @@ func (a *Agent) publish(size int) {
 	if err != nil {
 		panic(err)
 	}
-	if err := a.topic.Publish(context.Background(), raw); err != nil {
+	if err := a.Topic.Publish(context.Background(), raw); err != nil {
 		panic(err)
 	}
 }
@@ -299,10 +297,10 @@ func (a *Agent) setupHttp() {
 	e.Logger.SetOutput(ioutil.Discard)
 
 	e.GET("/system/city", func(c echo.Context) error {
-		return c.String(http.StatusOK, a.config.City)
+		return c.String(http.StatusOK, a.Config.City)
 	})
 	e.GET("/system/id", func(c echo.Context) error {
-		return c.String(http.StatusOK, a.config.ID)
+		return c.String(http.StatusOK, a.Config.ID)
 	})
 	e.GET("/publish", func(c echo.Context) error {
 
@@ -320,8 +318,8 @@ func (a *Agent) setupHttp() {
 	})
 
 	go func() {
-		a.logger.Printf("Start http server: addr=%s", a.config.HttpAddr.String())
-		if err := e.Start(a.config.HttpAddr.String()); err != nil {
+		a.Logger.Printf("Start http server: addr=%s", a.Config.HttpAddr.String())
+		if err := e.Start(a.Config.HttpAddr.String()); err != nil {
 			panic(err)
 		}
 	}()

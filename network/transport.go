@@ -3,12 +3,18 @@ package network
 import (
 	"context"
 	"net"
+	"sync/atomic"
 
 	"github.com/libp2p/go-libp2p-core/peer"
 	"github.com/libp2p/go-libp2p-core/transport"
 	tptu "github.com/libp2p/go-libp2p-transport-upgrader"
 	ma "github.com/multiformats/go-multiaddr"
+	upstream "github.com/multiformats/go-multiaddr/net"
 )
+
+type NetworkQueryLatency interface {
+	CreateConn(baseConn net.Conn, laddr, raddr ma.Multiaddr) (net.Conn, error)
+}
 
 type Transport struct {
 	// need the upgrader to create the connection
@@ -17,19 +23,35 @@ type Transport struct {
 	// reference to the transport latency manager
 	Manager *Manager
 
-	// listener is ready to accept connections
-	listener *BuffconnListener
-
 	// local address
 	laddr ma.Multiaddr
+
+	acceptCh chan connWithError
+	isClosed int32
 }
 
-func (t *Transport) Dial(ctx context.Context, raddr ma.Multiaddr, p peer.ID) (transport.CapableConn, error) {
-	conn, err := t.Manager.dial(t.laddr, raddr)
+func (t *Transport) newConnection(conn net.Conn, laddr, raddr ma.Multiaddr) (transport.CapableConn, error) {
+	manetConn, err := t.Manager.NewConnection(conn, laddr, raddr)
 	if err != nil {
 		return nil, err
 	}
-	return t.Upgrader.UpgradeOutbound(ctx, t, conn, p)
+	return t.Upgrader.UpgradeInbound(context.Background(), t, manetConn)
+}
+
+func (t *Transport) Dial(ctx context.Context, raddr ma.Multiaddr, p peer.ID) (transport.CapableConn, error) {
+	if t.laddr == nil || raddr == nil {
+		panic("laddr and raddr must be specified")
+	}
+	conn1, conn2 := t.Manager.ConnManager.Get(t.laddr.String(), raddr.String())
+
+	// listener side
+	go func() {
+		resultConn, err := t.newConnection(conn2, raddr, t.laddr)
+		t.acceptCh <- connWithError{conn: resultConn, err: err}
+	}()
+
+	// dialer side
+	return t.newConnection(conn1, t.laddr, raddr)
 }
 
 func (t *Transport) CanDial(addr ma.Multiaddr) bool {
@@ -38,11 +60,7 @@ func (t *Transport) CanDial(addr ma.Multiaddr) bool {
 
 func (t *Transport) Listen(laddr ma.Multiaddr) (transport.Listener, error) {
 	t.laddr = laddr
-
-	lis := &listener{
-		transport: t,
-	}
-	return lis, nil
+	return t, nil
 }
 
 func (t *Transport) Protocols() []int {
@@ -54,37 +72,36 @@ func (t *Transport) Proxy() bool {
 	return false
 }
 
-// -- listener --
-
-type listener struct {
-	transport *Transport
-}
-
-func (l *listener) Accept() (transport.CapableConn, error) {
-	rawConn, err := l.transport.listener.Accept()
-	if err != nil {
-		return nil, err
+func (t *Transport) Accept() (transport.CapableConn, error) {
+	connWithError, hasMore := <-t.acceptCh
+	if !hasMore {
+		return nil, net.ErrClosed
 	}
-	manetConn := &conn{rawConn, l.transport.laddr, l.transport.laddr}
-	return l.transport.Upgrader.UpgradeInbound(context.Background(), l.transport, manetConn)
+	if connWithError.err != nil {
+		return nil, connWithError.err
+	}
+	return connWithError.conn, nil
 }
 
-func (l *listener) Close() error {
-	return l.transport.listener.Close()
-}
-
-func (l *listener) Addr() net.Addr {
-	panic("unimplemented")
+func (t *Transport) Close() error {
+	if atomic.CompareAndSwapInt32(&t.isClosed, 0, 1) {
+		close(t.acceptCh)
+	}
 	return nil
 }
 
-func (l *listener) Multiaddr() ma.Multiaddr {
-	return l.transport.laddr
+func (t *Transport) Addr() net.Addr {
+	v, _ := upstream.ToNetAddr(t.laddr)
+	return v
 }
 
-// -- connection --
+func (t *Transport) Multiaddr() ma.Multiaddr {
+	return t.laddr
+}
 
-type conn struct {
+// -- multi address connection --
+
+type manetConn struct {
 	net.Conn
 
 	laddr ma.Multiaddr
@@ -92,10 +109,15 @@ type conn struct {
 	raddr ma.Multiaddr
 }
 
-func (c *conn) LocalMultiaddr() ma.Multiaddr {
+func (c *manetConn) LocalMultiaddr() ma.Multiaddr {
 	return c.laddr
 }
 
-func (c *conn) RemoteMultiaddr() ma.Multiaddr {
+func (c *manetConn) RemoteMultiaddr() ma.Multiaddr {
 	return c.raddr
+}
+
+type connWithError struct {
+	conn transport.CapableConn
+	err  error
 }

@@ -1,7 +1,7 @@
 package network
 
 import (
-	"sync"
+	"net"
 
 	"github.com/libp2p/go-libp2p-core/connmgr"
 	"github.com/libp2p/go-libp2p-core/host"
@@ -9,57 +9,34 @@ import (
 	tptu "github.com/libp2p/go-libp2p-transport-upgrader"
 	"github.com/libp2p/go-libp2p/config"
 	ma "github.com/multiformats/go-multiaddr"
-	manet "github.com/multiformats/go-multiaddr/net"
 )
 
 type Manager struct {
-	lock         sync.Mutex
-	transports   []*Transport
-	QueryNetwork func(laddr, raddr ma.Multiaddr) Network
+	ConnManager         ConnManager
+	NetworkQueryLatency NetworkQueryLatency
 }
 
-func (m *Manager) dial(laddr, raddr ma.Multiaddr) (manet.Conn, error) {
-	if laddr == nil || raddr == nil {
-		panic("bad")
+func NewManager(connMngr ConnManager, networkQueryLatency NetworkQueryLatency) *Manager {
+	return &Manager{
+		ConnManager:         connMngr,
+		NetworkQueryLatency: networkQueryLatency,
 	}
+}
 
-	network := m.QueryNetwork(laddr, raddr)
-
-	rawConn, err := m.findRemote(raddr).listener.Dial(network)
+func (m *Manager) NewConnection(conn net.Conn, laddr, raddr ma.Multiaddr) (*manetConn, error) {
+	conn, err := m.NetworkQueryLatency.CreateConn(conn, laddr, raddr)
 	if err != nil {
 		return nil, err
 	}
-
-	// outbound connection
-	conn0 := &conn{rawConn, laddr, raddr}
-
-	return conn0, nil
-}
-
-func (m *Manager) findRemote(raddr ma.Multiaddr) *Transport {
-	m.lock.Lock()
-	defer m.lock.Unlock()
-
-	for _, t := range m.transports {
-		if t.laddr.Equal(raddr) {
-			return t
-		}
-	}
-
-	panic("not found")
+	return &manetConn{conn, laddr, raddr}, nil
 }
 
 func (m *Manager) Transport() config.TptC {
-	if m.transports == nil {
-		m.transports = []*Transport{}
-	}
 	return func(h host.Host, u *tptu.Upgrader, cg connmgr.ConnectionGater) (transport.Transport, error) {
 		tr := &Transport{
 			Upgrader: u,
 			Manager:  m,
-			listener: Listen(1024 * 1024),
 		}
-		m.transports = append(m.transports, tr)
 		return tr, nil
 	}
 }
