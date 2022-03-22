@@ -6,6 +6,7 @@ import (
 
 	"github.com/libp2p/go-libp2p-core/connmgr"
 	"github.com/libp2p/go-libp2p-core/host"
+	"github.com/libp2p/go-libp2p-core/peer"
 	"github.com/libp2p/go-libp2p-core/transport"
 	tptu "github.com/libp2p/go-libp2p-transport-upgrader"
 	"github.com/libp2p/go-libp2p/config"
@@ -32,9 +33,10 @@ func NewTransportManager(connMngr ConnManager, latencyConnFactory LatencyConnFac
 	}
 }
 
-func (m *TransportManager) GetTransport(transportId string) *Transport {
+func (m *TransportManager) GetTransport(peerId peer.ID) *Transport {
 	m.lock.RLock()
 	defer m.lock.RUnlock()
+	transportId := peerId.Pretty()
 	t, exists := m.transports[transportId]
 	if !exists {
 		panic("Transport does not exists: " + transportId)

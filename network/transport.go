@@ -2,7 +2,6 @@ package network
 
 import (
 	"context"
-	"fmt"
 	"net"
 	"sync/atomic"
 
@@ -46,19 +45,9 @@ func (t *Transport) Dial(ctx context.Context, raddr ma.Multiaddr, p peer.ID) (tr
 	conn1, conn2 := t.manager.ConnManager.Get(t.laddr.String(), raddr.String())
 
 	// listener side
-	go func() {
-		otherTransport := t.manager.GetTransport(p.Pretty())
-		maconn, err := otherTransport.newConnection(conn2, raddr, t.laddr)
-		if err != nil {
-			panic(fmt.Sprintf("Error creating listener connection: %v, err: %v"+p.Pretty(), err))
-		}
-		resultConn, err := otherTransport.upgrader.Upgrade(
-			context.Background(), otherTransport, maconn, network.DirInbound, t.peerId)
-		if err != nil {
-			panic(fmt.Sprintf("Error creating listener connection: %v, err: %v"+p.Pretty(), err))
-		}
-		otherTransport.acceptCh <- connWithError{conn: resultConn, err: err}
-	}()
+	go func(otherTransport *Transport, dId peer.ID, daddr ma.Multiaddr, dconn net.Conn) {
+		otherTransport.setupListenerConnection(dId, daddr, dconn)
+	}(t.manager.GetTransport(p), t.peerId, t.laddr, conn2)
 
 	// dialer side
 	maconn, err := t.newConnection(conn1, t.laddr, raddr)
@@ -111,6 +100,21 @@ func (t *Transport) Addr() net.Addr {
 
 func (t *Transport) Multiaddr() ma.Multiaddr {
 	return t.laddr
+}
+
+func (t *Transport) setupListenerConnection(remotePeerId peer.ID, remoteAddr ma.Multiaddr, conn net.Conn) {
+	maconn, err := t.newConnection(conn, t.laddr, remoteAddr)
+	if err != nil {
+		t.acceptCh <- connWithError{nil, err}
+		return
+	}
+	resultConn, err := t.upgrader.Upgrade(
+		context.Background(), t, maconn, network.DirInbound, remotePeerId)
+	if err != nil {
+		t.acceptCh <- connWithError{nil, err}
+		return
+	}
+	t.acceptCh <- connWithError{conn: resultConn, err: err}
 }
 
 // -- multi address connection --

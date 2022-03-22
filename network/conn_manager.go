@@ -36,7 +36,7 @@ func NewConnManagerNetPipe() *ConnManagerImpl {
 func NewConnManagerNetPipeAsync() *ConnManagerImpl {
 	return NewConnManagerImpl(func() (net.Conn, net.Conn) {
 		c1, c2 := net.Pipe()
-		return &asyncConnWrapper{c1}, &asyncConnWrapper{c2}
+		return newAsyncConnWrapper(c1), newAsyncConnWrapper(c2)
 	})
 }
 
@@ -71,17 +71,32 @@ func (m *ConnManagerImpl) addInLock(local, remote string, conn net.Conn) net.Con
 	return conn
 }
 
+// net.Pipe returns two net.Conn which communicate with each other in sync way. We must make this communication async
+// write is producer (populates writeCh channel) and loopWrite is consumer - reads from writeCh channel and actually writes to connection
 type asyncConnWrapper struct {
 	net.Conn
+	writeCh chan []byte
 }
 
-// net.Pipe returns two net.Conn which communicate with each other in sync way. We must make this communication async
-func (c *asyncConnWrapper) Write(p []byte) (n int, err error) {
-	go func() {
-		_, err := c.Conn.Write(p)
+func newAsyncConnWrapper(baseConn net.Conn) net.Conn {
+	r := &asyncConnWrapper{
+		Conn:    baseConn,
+		writeCh: make(chan []byte),
+	}
+	go r.loopWrite()
+	return r
+}
+
+func (c *asyncConnWrapper) loopWrite() {
+	for data := range c.writeCh {
+		_, err := c.Conn.Write(data)
 		if err != nil {
-			fmt.Printf("Error writing to pipe: %v\n", err)
+			fmt.Printf("Error writing to async pipe: %v\n", err)
 		}
-	}()
+	}
+}
+
+func (c *asyncConnWrapper) Write(p []byte) (n int, err error) {
+	c.writeCh <- p
 	return len(p), nil
 }
