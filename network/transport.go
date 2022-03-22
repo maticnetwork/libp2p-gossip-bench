@@ -25,16 +25,8 @@ type Transport struct {
 
 	peerId peer.ID
 
-	acceptCh chan connWithError
+	acceptCh chan acceptChData
 	isClosed int32
-}
-
-func (t *Transport) newConnection(conn net.Conn, laddr, raddr ma.Multiaddr) (upstream.Conn, error) {
-	conn, err := t.manager.LatencyConnFactory.CreateConn(conn, laddr, raddr)
-	if err != nil {
-		return nil, err
-	}
-	return &manetConn{conn, laddr, raddr}, nil
 }
 
 func (t *Transport) Dial(ctx context.Context, raddr ma.Multiaddr, p peer.ID) (transport.CapableConn, error) {
@@ -45,16 +37,17 @@ func (t *Transport) Dial(ctx context.Context, raddr ma.Multiaddr, p peer.ID) (tr
 	conn1, conn2 := t.manager.ConnManager.Get(t.laddr.String(), raddr.String())
 
 	// listener side
-	go func(otherTransport *Transport, dId peer.ID, daddr ma.Multiaddr, dconn net.Conn) {
-		otherTransport.setupListenerConnection(dId, daddr, dconn)
-	}(t.manager.GetTransport(p), t.peerId, t.laddr, conn2)
+	go func() {
+		other := t.manager.GetTransport(p)
+		other.acceptCh <- acceptChData{conn2, t.peerId, t.laddr}
+	}()
 
 	// dialer side
-	maconn, err := t.newConnection(conn1, t.laddr, raddr)
+	latencyConn, err := t.manager.LatencyConnFactory.CreateConn(conn1, t.laddr, raddr)
 	if err != nil {
 		return nil, err
 	}
-	return t.upgrader.Upgrade(ctx, t, maconn, network.DirOutbound, p)
+	return t.upgrader.Upgrade(ctx, t, &manetConn{latencyConn, t.laddr, raddr}, network.DirOutbound, p)
 }
 
 func (t *Transport) CanDial(addr ma.Multiaddr) bool {
@@ -76,14 +69,15 @@ func (t *Transport) Proxy() bool {
 }
 
 func (t *Transport) Accept() (transport.CapableConn, error) {
-	connWithError, hasMore := <-t.acceptCh
+	data, hasMore := <-t.acceptCh
 	if !hasMore {
 		return nil, net.ErrClosed
 	}
-	if connWithError.err != nil {
-		return nil, connWithError.err
+	latencyConn, err := t.manager.LatencyConnFactory.CreateConn(data.conn, t.laddr, data.raddr)
+	if err != nil {
+		return nil, err
 	}
-	return connWithError.conn, nil
+	return t.upgrader.Upgrade(context.Background(), t, &manetConn{latencyConn, t.laddr, data.raddr}, network.DirInbound, data.peerId)
 }
 
 func (t *Transport) Close() error {
@@ -100,21 +94,6 @@ func (t *Transport) Addr() net.Addr {
 
 func (t *Transport) Multiaddr() ma.Multiaddr {
 	return t.laddr
-}
-
-func (t *Transport) setupListenerConnection(remotePeerId peer.ID, remoteAddr ma.Multiaddr, conn net.Conn) {
-	maconn, err := t.newConnection(conn, t.laddr, remoteAddr)
-	if err != nil {
-		t.acceptCh <- connWithError{nil, err}
-		return
-	}
-	resultConn, err := t.upgrader.Upgrade(
-		context.Background(), t, maconn, network.DirInbound, remotePeerId)
-	if err != nil {
-		t.acceptCh <- connWithError{nil, err}
-		return
-	}
-	t.acceptCh <- connWithError{conn: resultConn, err: err}
 }
 
 // -- multi address connection --
@@ -135,7 +114,8 @@ func (c *manetConn) RemoteMultiaddr() ma.Multiaddr {
 	return c.raddr
 }
 
-type connWithError struct {
-	conn transport.CapableConn
-	err  error
+type acceptChData struct {
+	conn   net.Conn
+	peerId peer.ID
+	raddr  ma.Multiaddr
 }

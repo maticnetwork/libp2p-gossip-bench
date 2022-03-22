@@ -52,6 +52,7 @@ func (m *TransportManager) Transport() config.TptC {
 			upgrader: u,
 			manager:  m,
 			peerId:   h.ID(),
+			acceptCh: make(chan acceptChData),
 		}
 		m.transports[h.ID().Pretty()] = tr
 		return tr, nil
