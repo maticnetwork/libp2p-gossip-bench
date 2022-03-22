@@ -19,7 +19,7 @@
 // Provides wrappers for net.Conn, net.Listener, and
 // net.Dialers, designed to interoperate to inject real-world latency into
 // network connections.
-package network
+package latency
 
 import (
 	"bytes"
