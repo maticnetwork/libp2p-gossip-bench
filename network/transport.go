@@ -52,7 +52,8 @@ func (t *Transport) Dial(ctx context.Context, raddr ma.Multiaddr, p peer.ID) (tr
 		if err != nil {
 			panic(fmt.Sprintf("Error creating listener connection: %v, err: %v"+p.Pretty(), err))
 		}
-		resultConn, err := t.upgrader.Upgrade(context.Background(), t, maconn, network.DirInbound, t.peerId)
+		resultConn, err := otherTransport.upgrader.Upgrade(
+			context.Background(), otherTransport, maconn, network.DirInbound, t.peerId)
 		if err != nil {
 			panic(fmt.Sprintf("Error creating listener connection: %v, err: %v"+p.Pretty(), err))
 		}
