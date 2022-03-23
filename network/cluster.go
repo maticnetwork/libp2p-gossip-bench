@@ -8,6 +8,7 @@ import (
 	"net"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	lat "github.com/maticnetwork/libp2p-gossip-bench/latency"
@@ -25,6 +26,8 @@ type ClusterAgent interface {
 	Addr() ma.Multiaddr
 }
 
+type MsgReceived func(lid, rid string)
+
 type Cluster struct {
 	lock sync.RWMutex
 
@@ -32,21 +35,28 @@ type Cluster struct {
 	logger      *log.Logger
 	agents      map[int]ClusterAgent // port to ClusterAgent
 	port        int
-	maxPeers    int
-	ipString    string
+	config      ClusterConfig
+	agentStats  map[string]map[string]int64
+}
+
+type ClusterConfig struct {
+	StartingPort int
+	MaxPeers     int
+	Ip           string
+	MsgSize      int
 }
 
 var _ LatencyConnFactory = &Cluster{}
 
-func NewCluster(logger *log.Logger, latencyData *lat.LatencyData, ipString string, startingPort int, maxPeers int) *Cluster {
+func NewCluster(logger *log.Logger, latencyData *lat.LatencyData, config ClusterConfig) *Cluster {
 	return &Cluster{
 		lock:        sync.RWMutex{},
 		agents:      make(map[int]ClusterAgent),
 		latencyData: latencyData,
 		logger:      logger,
-		port:        startingPort,
-		maxPeers:    maxPeers,
-		ipString:    ipString,
+		config:      config,
+		port:        config.StartingPort,
+		agentStats:  make(map[string]map[string]int64),
 	}
 }
 
@@ -55,7 +65,7 @@ func (c *Cluster) AddAgent(agent ClusterAgent) (int, error) {
 	defer c.lock.Unlock()
 
 	// trying to start agent on next available port...
-	err := agent.Listen(c.ipString, c.port+1)
+	err := agent.Listen(c.config.Ip, c.port+1)
 	if err != nil {
 		return 0, fmt.Errorf("can not start agent for port %d, err: %v", c.port+1, err)
 	}
@@ -88,7 +98,7 @@ func (c *Cluster) RemoveAgent(id int) error {
 	return nil
 }
 
-func (m *Cluster) CreateConn(baseConn net.Conn, laddr, raddr ma.Multiaddr) (net.Conn, error) {
+func (c *Cluster) CreateConn(baseConn net.Conn, laddr, raddr ma.Multiaddr) (net.Conn, error) {
 	laddrPort, err := laddr.ValueForProtocol(ma.P_TCP)
 	if err != nil {
 		return nil, err
@@ -101,8 +111,8 @@ func (m *Cluster) CreateConn(baseConn net.Conn, laddr, raddr ma.Multiaddr) (net.
 	lport, _ := strconv.Atoi(laddrPort)
 	rport, _ := strconv.Atoi(raddrPort)
 
-	lagent, ragent := m.GetAgent(lport), m.GetAgent(rport)
-	latencyDuration := m.latencyData.FindLatency(lagent.City(), ragent.City())
+	lagent, ragent := c.GetAgent(lport), c.GetAgent(rport)
+	latencyDuration := c.latencyData.FindLatency(lagent.City(), ragent.City())
 
 	nn := lat.Network{
 		Kbps:    20 * 1024, // should I change this?
@@ -112,37 +122,38 @@ func (m *Cluster) CreateConn(baseConn net.Conn, laddr, raddr ma.Multiaddr) (net.
 	return nn.Conn(baseConn)
 }
 
-func (m *Cluster) Gossip(from int, size int) {
-	agent := m.GetAgent(from)
-	buf := generateMsg(size, agent.Addr())
+func (c *Cluster) Gossip(from int, size int) {
+	agent := c.GetAgent(from)
+	buf := generateMsg(c.config.MsgSize)
 	agent.Gossip(buf)
 }
 
-func (m *Cluster) Connect(fromID, toID int) error {
-	from, to := m.GetAgent(fromID), m.GetAgent(toID)
-	if from.NumPeers() == m.maxPeers {
+func (c *Cluster) Connect(fromID, toID int) error {
+	from, to := c.GetAgent(fromID), c.GetAgent(toID)
+	if from.NumPeers() == c.config.MaxPeers {
 		return fmt.Errorf("agent %d has already maximum peers connected", fromID)
 	}
 	return from.Connect(to)
 }
 
-func (m *Cluster) Stop(portId int) error {
-	return m.GetAgent(portId).Stop()
+func (c *Cluster) Stop(portId int) error {
+	return c.GetAgent(portId).Stop()
 }
 
-func (m *Cluster) Start(portId int) error {
-	return m.GetAgent(portId).Listen(m.ipString, portId)
+func (c *Cluster) Start(portId int) error {
+	return c.GetAgent(portId).Listen(c.config.Ip, portId)
 }
 
-func (m *Cluster) StopAll() {
-	for _, agnt := range m.agents {
+func (c *Cluster) StopAll() {
+	for _, agnt := range c.agents {
 		agnt.Stop()
 	}
 }
 
-func (m *Cluster) GossipLoop(context context.Context, gossipTime time.Duration, timeout time.Duration) <-chan struct{} {
+func (c *Cluster) GossipLoop(context context.Context, gossipTime time.Duration, timeout time.Duration) (int64, int64) {
+	msgsPublishedCnt, msgsFailedCnt := int64(0), int64(0)
 	ch := make(chan struct{})
-	for _, agent := range m.agents {
+	for _, agent := range c.agents {
 		go func(a ClusterAgent) {
 			tm := time.NewTicker(gossipTime)
 			defer tm.Stop()
@@ -150,7 +161,12 @@ func (m *Cluster) GossipLoop(context context.Context, gossipTime time.Duration, 
 			for {
 				select {
 				case <-tm.C:
-					a.Gossip(generateMsg(10, a.Addr()))
+					err := a.Gossip(generateMsg(c.config.MsgSize))
+					if err == nil {
+						atomic.AddInt64(&msgsPublishedCnt, 1)
+					} else {
+						atomic.AddInt64(&msgsFailedCnt, 1)
+					}
 				case <-ch:
 					break outer
 				}
@@ -165,14 +181,37 @@ func (m *Cluster) GossipLoop(context context.Context, gossipTime time.Duration, 
 	}
 
 	close(ch)
-	return ch
+	return msgsPublishedCnt, msgsFailedCnt
 }
 
-func generateMsg(size int, addr ma.Multiaddr) []byte {
+func (c *Cluster) MsgReceived(lid, rid string) {
+	if c.agentStats[lid] == nil {
+		c.agentStats[lid] = make(map[string]int64)
+	}
+	c.agentStats[lid][rid]++
+}
+
+func (c *Cluster) PrintReceiversStats() {
+	all := int64(0)
+	byAgent := make(map[string]int64, 0)
+	for k, v := range c.agentStats {
+		cnt := int64(0)
+		for _, num := range v {
+			all += num
+			cnt += num
+		}
+		byAgent[k] = cnt
+	}
+
+	fmt.Printf("Recieved messages: %d\n", all)
+	fmt.Println("Recieved messages by agent")
+	for k, v := range byAgent {
+		fmt.Printf("Recieved messages by %s: %d\n", k, v)
+	}
+}
+
+func generateMsg(size int) []byte {
 	buf := make([]byte, size)
 	rand.Read(buf)
-	p, _ := addr.ValueForProtocol(ma.P_TCP)
-	buf[0] = byte(p[0])
-	buf[1] = byte(p[1])
 	return buf
 }

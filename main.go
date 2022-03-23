@@ -16,6 +16,7 @@ import (
 const AgentsNumber = 5
 const StartingPort = 10000
 const MaxPeers = 2
+const MsgSize = 4096
 const IpString = "127.0.0.1"
 
 var logger *log.Logger = log.New(os.Stdout, "Mesh: ", log.Flags())
@@ -25,14 +26,20 @@ func main() {
 
 	connManager := network.NewConnManagerNetPipe()
 	latencyData := lat.ReadLatencyData()
-	cluster := network.NewCluster(logger, latencyData, IpString, StartingPort, MaxPeers)
+	cluster := network.NewCluster(logger, latencyData, network.ClusterConfig{
+		Ip:           IpString,
+		StartingPort: StartingPort,
+		MaxPeers:     MaxPeers,
+		MsgSize:      MsgSize,
+	})
 	transportManager := network.NewTransportManager(connManager, cluster)
 
-	fmt.Println("Start adding agents")
+	fmt.Println("Start adding agents: ", AgentsNumber)
 	for i := 0; i < AgentsNumber; i++ {
 		ac := &agent.AgentConfig{
-			City:      latencyData.GetRandomCity(),
-			Transport: transportManager.Transport(),
+			City:          latencyData.GetRandomCity(),
+			Transport:     transportManager.Transport(),
+			MsgReceivedFn: cluster.MsgReceived,
 		}
 		a := agent.NewAgent(logger, ac)
 		_, err := cluster.AddAgent(a)
@@ -54,5 +61,8 @@ func main() {
 	}
 
 	fmt.Println("Gossip started")
-	<-cluster.GossipLoop(context.Background(), time.Millisecond*900, time.Second*10)
+	msgsPublishedCnt, msgsFailedCnt := cluster.GossipLoop(context.Background(), time.Millisecond*900, time.Second*10)
+	fmt.Printf("Published %d messages \n", msgsPublishedCnt)
+	fmt.Printf("Failed %d messages \n", msgsFailedCnt)
+	cluster.PrintReceiversStats()
 }

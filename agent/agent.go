@@ -49,8 +49,9 @@ type Agent struct {
 var _ network.ClusterAgent = &Agent{}
 
 type AgentConfig struct {
-	City      string
-	Transport configLibp2p.TptC
+	City          string
+	Transport     configLibp2p.TptC
+	MsgReceivedFn network.MsgReceived
 }
 
 // pubsubQueueSize is the size that we assign to our validation queue and outbound message queue for
@@ -112,7 +113,8 @@ func (a *Agent) Listen(ipString string, port int) error {
 	}
 
 	readLoop(sub, func(data []byte, from peer.ID) {
-		fmt.Printf("Peer %v received from %v data: %v\n", a.Host.ID(), from, data)
+		fmt.Printf("Peer %v received data from %v\n", a.Host.ID(), from)
+		a.Config.MsgReceivedFn(a.Host.ID().Pretty(), from.Pretty())
 	})
 
 	a.Host, a.GossipSub, a.Topic = host, ps, topic
