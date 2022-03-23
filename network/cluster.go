@@ -91,11 +91,11 @@ func (c *Cluster) RemoveAgent(id int) error {
 func (m *Cluster) CreateConn(baseConn net.Conn, laddr, raddr ma.Multiaddr) (net.Conn, error) {
 	laddrPort, err := laddr.ValueForProtocol(ma.P_TCP)
 	if err != nil {
-		panic(err)
+		return nil, err
 	}
 	raddrPort, err := raddr.ValueForProtocol(ma.P_TCP)
 	if err != nil {
-		panic(err)
+		return nil, err
 	}
 
 	lport, _ := strconv.Atoi(laddrPort)
@@ -140,7 +140,7 @@ func (m *Cluster) StopAll() {
 	}
 }
 
-func (m *Cluster) GossipLoop(context context.Context, gossipTime time.Duration, timeout time.Duration) {
+func (m *Cluster) GossipLoop(context context.Context, gossipTime time.Duration, timeout time.Duration) <-chan struct{} {
 	ch := make(chan struct{})
 	for _, agent := range m.agents {
 		go func(a ClusterAgent) {
@@ -165,6 +165,7 @@ func (m *Cluster) GossipLoop(context context.Context, gossipTime time.Duration, 
 	}
 
 	close(ch)
+	return ch
 }
 
 func generateMsg(size int, addr ma.Multiaddr) []byte {

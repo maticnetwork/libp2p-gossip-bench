@@ -11,7 +11,7 @@ import (
 
 	"github.com/libp2p/go-libp2p"
 	"github.com/libp2p/go-libp2p-core/host"
-	peerstore "github.com/libp2p/go-libp2p-core/peer"
+	"github.com/libp2p/go-libp2p-core/peer"
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
 	configLibp2p "github.com/libp2p/go-libp2p/config"
 	ma "github.com/multiformats/go-multiaddr"
@@ -111,8 +111,8 @@ func (a *Agent) Listen(ipString string, port int) error {
 		return err
 	}
 
-	readLoop(sub, func(data []byte, from []byte) {
-		fmt.Println(data, from)
+	readLoop(sub, func(data []byte, from peer.ID) {
+		fmt.Printf("Peer %v received from %v data: %v\n", a.Host.ID(), from, data)
 	})
 
 	a.Host, a.GossipSub, a.Topic = host, ps, topic
@@ -121,7 +121,7 @@ func (a *Agent) Listen(ipString string, port int) error {
 
 func (a *Agent) Connect(remote network.ClusterAgent) error {
 	remoteAddr := remote.Addr()
-	peer, err := peerstore.AddrInfoFromP2pAddr(remoteAddr)
+	peer, err := peer.AddrInfoFromP2pAddr(remoteAddr)
 	if err != nil {
 		return err
 	}
@@ -151,7 +151,7 @@ func (a *Agent) City() string {
 }
 
 func (a *Agent) NumPeers() int {
-	return a.Host.Peerstore().Peers().Len()
+	return a.Host.Peerstore().Peers().Len() - 1 // libp2p holds itself in list
 }
 
 func (a *Agent) Addr() ma.Multiaddr {
@@ -182,14 +182,14 @@ func pubsubGossipParam() pubsub.GossipSubParams {
 	return gParams
 }
 
-func readLoop(sub *pubsub.Subscription, handler func(data []byte, from []byte)) {
+func readLoop(sub *pubsub.Subscription, handler func(data []byte, from peer.ID)) {
 	go func() {
 		for {
 			raw, err := sub.Next(context.Background())
 			if err != nil {
 				continue
 			}
-			handler(raw.Data, raw.From)
+			handler(raw.Data, raw.ReceivedFrom)
 		}
 	}()
 }
