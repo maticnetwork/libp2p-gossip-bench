@@ -61,19 +61,23 @@ func NewCluster(logger *log.Logger, latencyData *lat.LatencyData, config Cluster
 }
 
 func (c *Cluster) AddAgent(agent ClusterAgent) (int, error) {
+	// we do not want to execute whole agent.listen in lock, thats is why we have locks at two places
 	c.lock.Lock()
-	defer c.lock.Unlock()
+	c.port++
+	listenPort := c.port
+	c.lock.Unlock()
 
 	// trying to start agent on next available port...
-	err := agent.Listen(c.config.Ip, c.port+1)
+	err := agent.Listen(c.config.Ip, listenPort)
 	if err != nil {
-		return 0, fmt.Errorf("can not start agent for port %d, err: %v", c.port+1, err)
+		return 0, fmt.Errorf("can not start agent for port %d, err: %v", listenPort, err)
 	}
 
-	//... if agent is sucessfully started increment port and update map
-	c.port++
-	c.agents[c.port] = agent
-	return c.port, nil
+	//... if agent is sucessfully started update map
+	c.lock.Lock()
+	defer c.lock.Unlock()
+	c.agents[listenPort] = agent
+	return listenPort, nil
 }
 
 func (c *Cluster) GetAgent(id int) ClusterAgent {
@@ -88,12 +92,13 @@ func (c *Cluster) GetAgent(id int) ClusterAgent {
 
 func (c *Cluster) RemoveAgent(id int) error {
 	agent := c.GetAgent(id)
-	c.lock.Lock()
-	defer c.lock.Unlock()
 	err := agent.Stop()
 	if err != nil {
 		return err
 	}
+
+	c.lock.Lock()
+	defer c.lock.Unlock()
 	delete(c.agents, id)
 	return nil
 }
@@ -185,6 +190,8 @@ func (c *Cluster) GossipLoop(context context.Context, gossipTime time.Duration, 
 }
 
 func (c *Cluster) MsgReceived(lid, rid string) {
+	c.lock.Lock()
+	defer c.lock.Unlock()
 	if c.agentStats[lid] == nil {
 		c.agentStats[lid] = make(map[string]int64)
 	}

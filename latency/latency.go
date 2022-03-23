@@ -13,6 +13,7 @@ import (
 	"time"
 )
 
+const defaultAvgLatency = "0.58"
 const jsonFileLocation = "./data.json"
 const latenciesUrl = "https://wondernetwork.com/ping-data?sources=%s&destinations=%s"
 
@@ -37,7 +38,12 @@ func (l *LatencyData) FindLatency(from, to string) time.Duration {
 	fromID := l.sources[from]
 	toID := l.sources[to]
 
-	dur, err := time.ParseDuration(l.PingData[fromID][toID].Avg + "ms")
+	pd := l.PingData[fromID][toID].Avg
+	if pd == "" { // there are some cities which are not connected in json file
+		pd = defaultAvgLatency
+	}
+
+	dur, err := time.ParseDuration(pd + "ms")
 	if err != nil {
 		panic(err)
 	}

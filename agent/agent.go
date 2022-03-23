@@ -113,7 +113,7 @@ func (a *Agent) Listen(ipString string, port int) error {
 	}
 
 	readLoop(sub, func(data []byte, from peer.ID) {
-		fmt.Printf("Peer %v received data from %v\n", a.Host.ID(), from)
+		// fmt.Printf("Peer %v received data from %v\n", a.Host.ID(), from)
 		a.Config.MsgReceivedFn(a.Host.ID().Pretty(), from.Pretty())
 	})
 
