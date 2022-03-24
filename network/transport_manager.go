@@ -10,11 +10,10 @@ import (
 	"github.com/libp2p/go-libp2p-core/transport"
 	tptu "github.com/libp2p/go-libp2p-transport-upgrader"
 	"github.com/libp2p/go-libp2p/config"
-	ma "github.com/multiformats/go-multiaddr"
 )
 
 type LatencyConnFactory interface {
-	CreateConn(baseConn net.Conn, laddr, raddr ma.Multiaddr) (net.Conn, error)
+	CreateConn(baseConn net.Conn, leftNodeId, rightNodeId int) (net.Conn, error)
 }
 
 type TransportManager struct {

@@ -112,17 +112,14 @@ func (a *Agent) Listen(ipString string, port int) error {
 		return err
 	}
 
-	readLoop(sub, func(data []byte, from peer.ID) {
-		// fmt.Printf("Peer %v received data from %v\n", a.Host.ID(), from)
-		a.Config.MsgReceivedFn(a.Host.ID().Pretty(), from.Pretty())
-	})
+	readLoop(sub, host.ID(), a.Config.MsgReceivedFn)
 
 	a.Host, a.GossipSub, a.Topic = host, ps, topic
 	return nil
 }
 
 func (a *Agent) Connect(remote network.ClusterAgent) error {
-	remoteAddr := remote.Addr()
+	remoteAddr := remote.(*Agent).Addr()
 	peer, err := peer.AddrInfoFromP2pAddr(remoteAddr)
 	if err != nil {
 		return err
@@ -131,7 +128,7 @@ func (a *Agent) Connect(remote network.ClusterAgent) error {
 }
 
 func (a *Agent) Disconnect(remote network.ClusterAgent) error {
-	remoteAddr := remote.Addr()
+	remoteAddr := remote.(*Agent).Addr()
 	for _, conn := range a.Host.Network().Conns() {
 		if conn.RemoteMultiaddr().Equal(remoteAddr) {
 			return conn.Close()
@@ -184,14 +181,16 @@ func pubsubGossipParam() pubsub.GossipSubParams {
 	return gParams
 }
 
-func readLoop(sub *pubsub.Subscription, handler func(data []byte, from peer.ID)) {
+func readLoop(sub *pubsub.Subscription, lid peer.ID, handler func(lid, rid string, data []byte)) {
 	go func() {
 		for {
 			raw, err := sub.Next(context.Background())
 			if err != nil {
+				fmt.Printf("Peer %v error receiving message on topic: %v\n", lid, err)
 				continue
 			}
-			handler(raw.Data, raw.ReceivedFrom)
+			// fmt.Printf("Peer %v received data from %v\n", a.Host.ID(), from)
+			handler(lid.Pretty(), raw.ReceivedFrom.Pretty(), raw.Data)
 		}
 	}()
 }

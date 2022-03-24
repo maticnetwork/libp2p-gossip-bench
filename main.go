@@ -106,7 +106,9 @@ func connectAgents(cluster *network.Cluster) {
 				}
 			}
 			wg.Done()
-			fmt.Printf("Peer %d dialed %d peers\n", i, cnt)
+			if cnt > 0 {
+				fmt.Printf("Peer %d dialed %d peers\n", i, cnt)
+			}
 		}(i)
 	}
 

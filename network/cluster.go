@@ -6,13 +6,11 @@ import (
 	"log"
 	"math/rand"
 	"net"
-	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	lat "github.com/maticnetwork/libp2p-gossip-bench/latency"
-	ma "github.com/multiformats/go-multiaddr"
 )
 
 type ClusterAgent interface {
@@ -23,10 +21,9 @@ type ClusterAgent interface {
 	Stop() error
 	City() string
 	NumPeers() int
-	Addr() ma.Multiaddr
 }
 
-type MsgReceived func(lid, rid string)
+type MsgReceived func(lid, rid string, data []byte)
 
 type Cluster struct {
 	lock sync.RWMutex
@@ -103,20 +100,8 @@ func (c *Cluster) RemoveAgent(id int) error {
 	return nil
 }
 
-func (c *Cluster) CreateConn(baseConn net.Conn, laddr, raddr ma.Multiaddr) (net.Conn, error) {
-	laddrPort, err := laddr.ValueForProtocol(ma.P_TCP)
-	if err != nil {
-		return nil, err
-	}
-	raddrPort, err := raddr.ValueForProtocol(ma.P_TCP)
-	if err != nil {
-		return nil, err
-	}
-
-	lport, _ := strconv.Atoi(laddrPort)
-	rport, _ := strconv.Atoi(raddrPort)
-
-	lagent, ragent := c.GetAgent(lport), c.GetAgent(rport)
+func (c *Cluster) CreateConn(baseConn net.Conn, leftNodeId, rightNodeId int) (net.Conn, error) {
+	lagent, ragent := c.GetAgent(leftNodeId), c.GetAgent(rightNodeId)
 	latencyDuration := c.latencyData.FindLatency(lagent.City(), ragent.City())
 
 	nn := lat.Network{
@@ -189,7 +174,7 @@ func (c *Cluster) GossipLoop(context context.Context, gossipTime time.Duration, 
 	return msgsPublishedCnt, msgsFailedCnt
 }
 
-func (c *Cluster) MsgReceived(lid, rid string) {
+func (c *Cluster) MsgReceived(lid, rid string, data []byte) {
 	c.lock.Lock()
 	defer c.lock.Unlock()
 	if c.agentStats[lid] == nil {

@@ -3,6 +3,7 @@ package network
 import (
 	"context"
 	"net"
+	"strconv"
 	"sync/atomic"
 
 	"github.com/libp2p/go-libp2p-core/network"
@@ -43,7 +44,7 @@ func (t *Transport) Dial(ctx context.Context, raddr ma.Multiaddr, p peer.ID) (tr
 	}()
 
 	// dialer side
-	latencyConn, err := t.manager.LatencyConnFactory.CreateConn(conn1, t.laddr, raddr)
+	latencyConn, err := t.manager.LatencyConnFactory.CreateConn(conn1, getPort(t.laddr), getPort(raddr))
 	if err != nil {
 		return nil, err
 	}
@@ -73,7 +74,8 @@ func (t *Transport) Accept() (transport.CapableConn, error) {
 	if !hasMore {
 		return nil, net.ErrClosed
 	}
-	latencyConn, err := t.manager.LatencyConnFactory.CreateConn(data.conn, t.laddr, data.raddr)
+
+	latencyConn, err := t.manager.LatencyConnFactory.CreateConn(data.conn, getPort(t.laddr), getPort(data.raddr))
 	if err != nil {
 		return nil, err
 	}
@@ -118,4 +120,13 @@ type acceptChData struct {
 	conn   net.Conn
 	peerId peer.ID
 	raddr  ma.Multiaddr
+}
+
+func getPort(addr ma.Multiaddr) int {
+	sport, err := addr.ValueForProtocol(ma.P_TCP)
+	if err != nil {
+		panic("invalid port for " + addr.String())
+	}
+	r, _ := strconv.Atoi(sport)
+	return r
 }
