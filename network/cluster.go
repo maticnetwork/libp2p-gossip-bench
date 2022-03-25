@@ -19,21 +19,27 @@ type ClusterAgent interface {
 	Disconnect(ClusterAgent) error
 	Gossip(data []byte) error
 	Stop() error
-	City() string
 	NumPeers() int
 }
 
 type MsgReceived func(lid, rid string, data []byte)
 
+type LatencyFinder func(lcity, rcity string) time.Duration
+
+type agentContainer struct {
+	agent ClusterAgent
+	city  string
+}
+
 type Cluster struct {
 	lock sync.RWMutex
 
-	latencyData *lat.LatencyData
-	logger      *log.Logger
-	agents      map[int]ClusterAgent // port to ClusterAgent
-	port        int
-	config      ClusterConfig
-	agentStats  map[string]map[string]int64
+	latencyFinder LatencyFinder
+	logger        *log.Logger
+	agents        map[int]agentContainer // port to ClusterAgent
+	port          int
+	config        ClusterConfig
+	agentStats    map[string]map[string]int64
 }
 
 type ClusterConfig struct {
@@ -45,21 +51,24 @@ type ClusterConfig struct {
 	MTU          int
 }
 
+const defaultKbps = 20 * 1024
+const defaultMTU = 1500
+
 var _ LatencyConnFactory = &Cluster{}
 
-func NewCluster(logger *log.Logger, latencyData *lat.LatencyData, config ClusterConfig) *Cluster {
+func NewCluster(logger *log.Logger, latencyFinder LatencyFinder, config ClusterConfig) *Cluster {
 	return &Cluster{
-		lock:        sync.RWMutex{},
-		agents:      make(map[int]ClusterAgent),
-		latencyData: latencyData,
-		logger:      logger,
-		config:      config,
-		port:        config.StartingPort,
-		agentStats:  make(map[string]map[string]int64),
+		lock:          sync.RWMutex{},
+		agents:        make(map[int]agentContainer),
+		latencyFinder: latencyFinder,
+		logger:        logger,
+		config:        config,
+		port:          config.StartingPort,
+		agentStats:    make(map[string]map[string]int64),
 	}
 }
 
-func (c *Cluster) AddAgent(agent ClusterAgent) (int, error) {
+func (c *Cluster) AddAgent(agent ClusterAgent, city string) (int, error) {
 	// we do not want to execute whole agent.listen in lock, thats is why we have locks at two places
 	c.lock.Lock()
 	c.port++
@@ -75,18 +84,26 @@ func (c *Cluster) AddAgent(agent ClusterAgent) (int, error) {
 	//... if agent is sucessfully started update map
 	c.lock.Lock()
 	defer c.lock.Unlock()
-	c.agents[listenPort] = agent
+	c.agents[listenPort] = agentContainer{agent: agent, city: city}
 	return listenPort, nil
 }
 
 func (c *Cluster) GetAgent(id int) ClusterAgent {
+	return c.GetAgentContainer(id).agent
+}
+
+func (c *Cluster) GetAgentCity(id int) string {
+	return c.GetAgentContainer(id).city
+}
+
+func (c *Cluster) GetAgentContainer(id int) agentContainer {
 	c.lock.RLock()
 	defer c.lock.RUnlock()
-	agent, exists := c.agents[id]
+	agentCont, exists := c.agents[id]
 	if !exists {
 		panic(fmt.Sprintf("Agent does not exist: %d", id))
 	}
-	return agent
+	return agentCont
 }
 
 func (c *Cluster) RemoveAgent(id int) error {
@@ -102,20 +119,20 @@ func (c *Cluster) RemoveAgent(id int) error {
 	return nil
 }
 
-func (c *Cluster) CreateConn(baseConn net.Conn, letPort, rightPort int) (net.Conn, error) {
-	lagent, ragent := c.GetAgent(letPort), c.GetAgent(rightPort)
-	latencyDuration := c.latencyData.FindLatency(lagent.City(), ragent.City())
+func (c *Cluster) CreateConn(baseConn net.Conn, leftPortID, rightPortID int) (net.Conn, error) {
+	lcity, rcity := c.GetAgentCity(leftPortID), c.GetAgentCity(rightPortID)
+	latencyDuration := c.latencyFinder(lcity, rcity)
 
 	nn := lat.Network{
-		Kbps:    getValue(c.config.Kbps, 20*1024),
+		Kbps:    getValue(c.config.Kbps, defaultKbps),
 		Latency: latencyDuration,
-		MTU:     getValue(c.config.MTU, 1500),
+		MTU:     getValue(c.config.MTU, defaultMTU),
 	}
 	return nn.Conn(baseConn)
 }
 
-func (c *Cluster) Gossip(from int, size int) {
-	agent := c.GetAgent(from)
+func (c *Cluster) Gossip(fromID int, size int) {
+	agent := c.GetAgent(fromID)
 	buf := generateMsg(c.config.MsgSize)
 	agent.Gossip(buf)
 }
@@ -137,15 +154,15 @@ func (c *Cluster) Start(portId int) error {
 }
 
 func (c *Cluster) StopAll() {
-	for _, agnt := range c.agents {
-		agnt.Stop()
+	for _, cont := range c.agents {
+		cont.agent.Stop()
 	}
 }
 
 func (c *Cluster) GossipLoop(context context.Context, gossipTime time.Duration, timeout time.Duration) (int64, int64) {
 	msgsPublishedCnt, msgsFailedCnt := int64(0), int64(0)
 	ch := make(chan struct{})
-	for _, agent := range c.agents {
+	for _, cont := range c.agents {
 		go func(a ClusterAgent) {
 			tm := time.NewTicker(gossipTime)
 			defer tm.Stop()
@@ -164,7 +181,7 @@ func (c *Cluster) GossipLoop(context context.Context, gossipTime time.Duration, 
 				}
 			}
 
-		}(agent)
+		}(cont.agent)
 	}
 
 	select {
@@ -204,7 +221,7 @@ func (c *Cluster) PrintReceiversStats() {
 	}
 }
 
-func (c *Cluster) StartAgents(agentsNumber, routinesNumber int, factory func(id int) ClusterAgent) (int64, time.Duration) {
+func (c *Cluster) StartAgents(agentsNumber, routinesNumber int, factory func(id int) (ClusterAgent, string)) (int64, time.Duration) {
 	startTime := time.Now()
 	wg := sync.WaitGroup{}
 	wg.Add(routinesNumber)
@@ -219,7 +236,8 @@ func (c *Cluster) StartAgents(agentsNumber, routinesNumber int, factory func(id 
 
 		go func(offset, cntAgents int) {
 			for i := 0; i < cntAgents; i++ {
-				_, err := c.AddAgent(factory(offset + i))
+				agent, city := factory(offset + i)
+				_, err := c.AddAgent(agent, city)
 				if err != nil {
 					fmt.Printf("Could not start peer %d\n", atomic.LoadInt64(&cntAgentsStarted))
 				} else {

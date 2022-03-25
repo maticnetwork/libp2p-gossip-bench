@@ -47,7 +47,6 @@ type Agent struct {
 var _ network.ClusterAgent = &Agent{}
 
 type AgentConfig struct {
-	City          string
 	Transport     configLibp2p.TptC
 	MsgReceivedFn network.MsgReceived
 }
@@ -141,10 +140,6 @@ func (a *Agent) Gossip(data []byte) error {
 
 func (a *Agent) Stop() error {
 	return a.Host.Close()
-}
-
-func (a *Agent) City() string {
-	return a.Config.City
 }
 
 func (a *Agent) NumPeers() int {

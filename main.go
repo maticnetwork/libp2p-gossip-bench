@@ -29,7 +29,7 @@ func main() {
 
 	connManager := network.NewConnManagerNetPipe()
 	latencyData := lat.ReadLatencyData()
-	cluster := network.NewCluster(logger, latencyData, network.ClusterConfig{
+	cluster := network.NewCluster(logger, latencyData.FindLatency, network.ClusterConfig{
 		Ip:           IpString,
 		StartingPort: StartingPort,
 		MaxPeers:     MaxPeers,
@@ -39,13 +39,12 @@ func main() {
 
 	fmt.Println("Start adding agents: ", AgentsNumber)
 
-	agentsAdded, timeAdded := cluster.StartAgents(AgentsNumber, StartAgentsRoutines, func(id int) network.ClusterAgent {
+	agentsAdded, timeAdded := cluster.StartAgents(AgentsNumber, StartAgentsRoutines, func(id int) (network.ClusterAgent, string) {
 		ac := &agent.AgentConfig{
-			City:          latencyData.GetRandomCity(),
 			Transport:     transportManager.Transport(),
 			MsgReceivedFn: cluster.MsgReceived,
 		}
-		return agent.NewAgent(logger, ac)
+		return agent.NewAgent(logger, ac), latencyData.GetRandomCity()
 	})
 	fmt.Printf("Added %d agents. Ellapsed: %v\n", agentsAdded, timeAdded)
 	connectAgents(cluster)
