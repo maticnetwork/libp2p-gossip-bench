@@ -1,21 +1,16 @@
 package latency
 
 import (
+	_ "embed"
 	"encoding/json"
-	"errors"
-	"fmt"
-	"io/ioutil"
 	"math/rand"
-	"net/http"
-	"os"
-	"strconv"
-	"strings"
 	"time"
 )
 
 const defaultAvgLatency = "0.58"
-const jsonFileLocation = "./data.json"
-const latenciesUrl = "https://wondernetwork.com/ping-data?sources=%s&destinations=%s"
+
+//go:embed latencies.json
+var latencyDataRaw string
 
 type LatencyData struct {
 	PingData map[string]map[string]struct {
@@ -50,20 +45,9 @@ func (l *LatencyData) FindLatency(from, to string) time.Duration {
 	return dur
 }
 
-// ReadLatencyData reads data from a downloaded data.json file
-// if data.json is not present, it tries to download it
-func ReadLatencyData() *LatencyData {
-	data, err := os.ReadFile(jsonFileLocation)
-	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			data = getLatencyData()
-		} else {
-			panic(err)
-		}
-	}
-
+func ReadLatencyDataFromJson() *LatencyData {
 	var latencyData LatencyData
-	if err := json.Unmarshal(data, &latencyData); err != nil {
+	if err := json.Unmarshal([]byte(latencyDataRaw), &latencyData); err != nil {
 		panic(err)
 	}
 
@@ -72,33 +56,4 @@ func ReadLatencyData() *LatencyData {
 		latencyData.sources[i.Name] = i.Id
 	}
 	return &latencyData
-}
-
-func getLatencyData() []byte {
-	idsSlice := []string{}
-
-	for i := 0; i < 50; i++ {
-		idsSlice = append(idsSlice, strconv.Itoa(i))
-	}
-
-	ids := strings.Join(idsSlice, ",")
-	url := fmt.Sprintf(latenciesUrl, ids, ids)
-	req, err := http.Get(url)
-	if err != nil {
-		panic(err)
-	}
-	defer req.Body.Close()
-
-	data, err := ioutil.ReadAll(req.Body)
-	if err != nil {
-		panic(err)
-	}
-
-	// write data in a file, for later
-	err = os.WriteFile(jsonFileLocation, data, 0644)
-	if err != nil {
-		panic(err)
-	}
-
-	return data
 }

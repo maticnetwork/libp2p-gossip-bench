@@ -16,7 +16,6 @@ import (
 )
 
 const AgentsNumber = 400
-const StartAgentsRoutines = 100
 const StartingPort = 10000
 const MaxPeers = 10
 const MsgSize = 4096
@@ -28,7 +27,7 @@ func main() {
 	rand.Seed(time.Now().Unix())
 
 	connManager := network.NewConnManagerNetPipe()
-	latencyData := lat.ReadLatencyData()
+	latencyData := lat.ReadLatencyDataFromJson()
 	cluster := network.NewCluster(logger, latencyData.FindLatency, network.ClusterConfig{
 		Ip:           IpString,
 		StartingPort: StartingPort,
@@ -39,11 +38,10 @@ func main() {
 
 	fmt.Println("Start adding agents: ", AgentsNumber)
 
-	agentsAdded, timeAdded := cluster.StartAgents(AgentsNumber, StartAgentsRoutines, func(id int) (network.ClusterAgent, string) {
-		ac := &agent.AgentConfig{
-			Transport:     transportManager.Transport(),
-			MsgReceivedFn: cluster.MsgReceived,
-		}
+	agentsAdded, timeAdded := cluster.StartAgents(AgentsNumber, func(id int) (network.ClusterAgent, string) {
+		ac := agent.NewDefaultAgentConfig()
+		ac.Transport = transportManager.Transport()
+		ac.MsgReceivedFn = cluster.MsgReceived
 		return agent.NewAgent(logger, ac), latencyData.GetRandomCity()
 	})
 	fmt.Printf("Added %d agents. Ellapsed: %v\n", agentsAdded, timeAdded)

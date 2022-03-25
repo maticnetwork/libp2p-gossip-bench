@@ -53,6 +53,7 @@ type ClusterConfig struct {
 
 const defaultKbps = 20 * 1024
 const defaultMTU = 1500
+const routinesNumber = 5
 
 var _ LatencyConnFactory = &Cluster{}
 
@@ -221,14 +222,18 @@ func (c *Cluster) PrintReceiversStats() {
 	}
 }
 
-func (c *Cluster) StartAgents(agentsNumber, routinesNumber int, factory func(id int) (ClusterAgent, string)) (int64, time.Duration) {
+func (c *Cluster) StartAgents(agentsNumber int, factory func(id int) (ClusterAgent, string)) (int64, time.Duration) {
+	routinesCount := routinesNumber
+	if routinesCount > agentsNumber {
+		routinesCount = agentsNumber
+	}
 	startTime := time.Now()
 	wg := sync.WaitGroup{}
-	wg.Add(routinesNumber)
+	wg.Add(routinesCount)
 
 	cntAgentsStarted := int64(0)
-	cntPerRoutine := (agentsNumber + routinesNumber - 1) / routinesNumber
-	for i := 0; i < routinesNumber; i++ {
+	cntPerRoutine := (agentsNumber + routinesCount - 1) / routinesCount
+	for i := 0; i < routinesCount; i++ {
 		cnt, offset := cntPerRoutine, i*cntPerRoutine
 		if cnt+offset > agentsNumber {
 			cnt = agentsNumber - offset

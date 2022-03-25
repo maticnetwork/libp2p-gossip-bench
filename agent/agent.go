@@ -16,26 +16,7 @@ import (
 	ma "github.com/multiformats/go-multiaddr"
 )
 
-const (
-	// overlay parameters
-	gossipSubD   = 8  // topic stable mesh target count
-	gossipSubDlo = 6  // topic stable mesh low watermark
-	gossipSubDhi = 12 // topic stable mesh high watermark
-
-	// gossip parameters
-	gossipSubMcacheLen    = 6   // number of windows to retain full messages in cache for `IWANT` responses
-	gossipSubMcacheGossip = 3   // number of windows to gossip about
-	gossipSubSeenTTL      = 550 // number of heartbeat intervals to retain message IDs
-
-	// fanout ttl
-	// gossipSubFanoutTTL = 60000000000 // TTL for fanout maps for topics we are not subscribed to but have published to, in nano seconds
-
-	// heartbeat interval
-	gossipSubHeartbeatInterval = 700 * time.Millisecond // frequency of heartbeat, milliseconds
-
-	// topic for pubsub
-	topicName = "Topic"
-)
+const ()
 
 type Agent struct {
 	Host   host.Host
@@ -49,11 +30,44 @@ var _ network.ClusterAgent = &Agent{}
 type AgentConfig struct {
 	Transport     configLibp2p.TptC
 	MsgReceivedFn network.MsgReceived
+
+	// overlay parameters
+	GossipSubD   int // topic stable mesh target count
+	GossipSubDlo int // topic stable mesh low watermark
+	GossipSubDhi int // topic stable mesh high watermark
+
+	// gossip parameters
+	GossipSubMcacheLen    int // number of windows to retain full messages in cache for `IWANT` responses
+	GossipSubMcacheGossip int // number of windows to gossip about
+	GossipSubSeenTTL      int // number of heartbeat intervals to retain message IDs
+
+	// fanout ttl
+	GossipSubFanoutTTL int // TTL for fanout maps for topics we are not subscribed to but have published to, in nano seconds
+
+	// heartbeat interval
+	GossipSubHeartbeatInterval time.Duration // frequency of heartbeat, milliseconds
+
+	// pubsubQueueSize is the size that we assign to our validation queue and outbound message queue for
+	PubsubQueueSize int
 }
 
-// pubsubQueueSize is the size that we assign to our validation queue and outbound message queue for
+func NewDefaultAgentConfig() *AgentConfig {
+	return &AgentConfig{
+		GossipSubD:                 8,
+		GossipSubDlo:               6,
+		GossipSubDhi:               12,
+		GossipSubMcacheLen:         6,
+		GossipSubMcacheGossip:      3,
+		GossipSubSeenTTL:           550,
+		GossipSubFanoutTTL:         60000000000,
+		GossipSubHeartbeatInterval: 700 * time.Millisecond,
+		PubsubQueueSize:            600,
+	}
+}
+
 // gossipsub.
-const pubsubQueueSize = 600
+// topic for pubsub
+const topicName = "Topic"
 
 func NewAgent(logger *log.Logger, config *AgentConfig) *Agent {
 	return &Agent{
@@ -68,19 +82,8 @@ func (a *Agent) Listen(ipString string, port int) error {
 		return err
 	}
 
-	addrsFactory := func(addrs []ma.Multiaddr) []ma.Multiaddr {
-		addr, _ := ma.NewMultiaddr(fmt.Sprintf("/ip4/%s/tcp/%d", ipString, port))
-
-		if addr != nil {
-			addrs = []ma.Multiaddr{addr}
-		}
-
-		return addrs
-	}
-
 	host, err := libp2p.New(
 		libp2p.ListenAddrs(listenAddr),
-		libp2p.AddrsFactory(addrsFactory),
 		libp2p.Transport(a.Config.Transport),
 	)
 	if err != nil {
@@ -90,9 +93,9 @@ func (a *Agent) Listen(ipString string, port int) error {
 	// start gossip protocol
 	psOpts := []pubsub.Option{
 		pubsub.WithMessageSignaturePolicy(pubsub.StrictNoSign),
-		pubsub.WithPeerOutboundQueueSize(pubsubQueueSize),
-		pubsub.WithValidateQueueSize(pubsubQueueSize),
-		pubsub.WithGossipSubParams(pubsubGossipParam()),
+		pubsub.WithPeerOutboundQueueSize(a.Config.PubsubQueueSize),
+		pubsub.WithValidateQueueSize(a.Config.PubsubQueueSize),
+		pubsub.WithGossipSubParams(a.getPubsubGossipParams()),
 	}
 	ps, err := pubsub.NewGossipSub(context.Background(), host, psOpts...)
 	if err != nil {
@@ -155,13 +158,13 @@ func (a *Agent) Addr() ma.Multiaddr {
 }
 
 // creates a custom gossipsub parameter set.
-func pubsubGossipParam() pubsub.GossipSubParams {
+func (a *Agent) getPubsubGossipParams() pubsub.GossipSubParams {
 	gParams := pubsub.DefaultGossipSubParams()
-	gParams.Dlo = gossipSubDlo
-	gParams.D = gossipSubD
-	gParams.HeartbeatInterval = gossipSubHeartbeatInterval
-	gParams.HistoryLength = gossipSubMcacheLen
-	gParams.HistoryGossip = gossipSubMcacheGossip
+	gParams.Dlo = a.Config.GossipSubDlo
+	gParams.D = a.Config.GossipSubD
+	gParams.HeartbeatInterval = a.Config.GossipSubHeartbeatInterval
+	gParams.HistoryLength = a.Config.GossipSubMcacheLen
+	gParams.HistoryGossip = a.Config.GossipSubMcacheGossip
 
 	// Set a larger gossip history to ensure that slower
 	// messages have a longer time to be propagated. This
