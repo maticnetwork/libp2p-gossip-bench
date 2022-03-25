@@ -1,7 +1,6 @@
 package network
 
 import (
-	"fmt"
 	"net"
 	"sync"
 )
@@ -30,13 +29,6 @@ func NewConnManagerImpl(connFactory ConnManagerFactory) *ConnManagerImpl {
 func NewConnManagerNetPipe() *ConnManagerImpl {
 	return NewConnManagerImpl(func() (net.Conn, net.Conn) {
 		return net.Pipe()
-	})
-}
-
-func NewConnManagerNetPipeAsync() *ConnManagerImpl {
-	return NewConnManagerImpl(func() (net.Conn, net.Conn) {
-		c1, c2 := net.Pipe()
-		return &asyncConnWrapper{c1}, &asyncConnWrapper{c2}
 	})
 }
 
@@ -69,19 +61,4 @@ func (m *ConnManagerImpl) addInLock(local, remote string, conn net.Conn) net.Con
 	}
 	m.connections[local][remote] = conn
 	return conn
-}
-
-type asyncConnWrapper struct {
-	net.Conn
-}
-
-// net.Pipe returns two net.Conn which communicate with each other in sync way. We must make this communication async
-func (c *asyncConnWrapper) Write(p []byte) (n int, err error) {
-	go func() {
-		_, err := c.Conn.Write(p)
-		if err != nil {
-			fmt.Printf("Error writing to pipe: %v\n", err)
-		}
-	}()
-	return len(p), nil
 }

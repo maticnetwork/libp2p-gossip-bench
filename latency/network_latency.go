@@ -19,7 +19,7 @@
 // Provides wrappers for net.Conn, net.Listener, and
 // net.Dialers, designed to interoperate to inject real-world latency into
 // network connections.
-package network
+package latency
 
 import (
 	"bytes"
@@ -79,11 +79,12 @@ var (
 // returned.
 func (n *Network) Conn(c net.Conn) (net.Conn, error) {
 	start := now()
-	nc := &netConn{Conn: c, network: n, readBuf: new(bytes.Buffer)}
-	if err := nc.sync(); err != nil {
-		return nil, err
-	}
-	sleep(start.Add(nc.delay).Sub(now()))
+	nc := &netConn{Conn: c, network: n, readBuf: new(bytes.Buffer), delay: n.Latency}
+	// if err := nc.sync(); err != nil {
+	// 	return nil, err
+	// }
+	// sleep(start.Add(nc.delay).Sub(now()))
+	time.Sleep(time.Until(start.Add(nc.delay)))
 	return nc, nil
 }
 
