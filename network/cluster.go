@@ -41,6 +41,8 @@ type ClusterConfig struct {
 	MaxPeers     int
 	Ip           string
 	MsgSize      int
+	Kbps         int
+	MTU          int
 }
 
 var _ LatencyConnFactory = &Cluster{}
@@ -100,14 +102,14 @@ func (c *Cluster) RemoveAgent(id int) error {
 	return nil
 }
 
-func (c *Cluster) CreateConn(baseConn net.Conn, leftNodeId, rightNodeId int) (net.Conn, error) {
-	lagent, ragent := c.GetAgent(leftNodeId), c.GetAgent(rightNodeId)
+func (c *Cluster) CreateConn(baseConn net.Conn, letPort, rightPort int) (net.Conn, error) {
+	lagent, ragent := c.GetAgent(letPort), c.GetAgent(rightPort)
 	latencyDuration := c.latencyData.FindLatency(lagent.City(), ragent.City())
 
 	nn := lat.Network{
-		Kbps:    20 * 1024, // should I change this?
+		Kbps:    getValue(c.config.Kbps, 20*1024),
 		Latency: latencyDuration,
-		MTU:     1500,
+		MTU:     getValue(c.config.MTU, 1500),
 	}
 	return nn.Conn(baseConn)
 }
@@ -202,8 +204,46 @@ func (c *Cluster) PrintReceiversStats() {
 	}
 }
 
+func (c *Cluster) StartAgents(agentsNumber, routinesNumber int, factory func(id int) ClusterAgent) (int64, time.Duration) {
+	startTime := time.Now()
+	wg := sync.WaitGroup{}
+	wg.Add(routinesNumber)
+
+	cntAgentsStarted := int64(0)
+	cntPerRoutine := (agentsNumber + routinesNumber - 1) / routinesNumber
+	for i := 0; i < routinesNumber; i++ {
+		cnt, offset := cntPerRoutine, i*cntPerRoutine
+		if cnt+offset > agentsNumber {
+			cnt = agentsNumber - offset
+		}
+
+		go func(offset, cntAgents int) {
+			for i := 0; i < cntAgents; i++ {
+				_, err := c.AddAgent(factory(offset + i))
+				if err != nil {
+					fmt.Printf("Could not start peer %d\n", atomic.LoadInt64(&cntAgentsStarted))
+				} else {
+					atomic.AddInt64(&cntAgentsStarted, 1)
+				}
+			}
+
+			wg.Done()
+		}(offset, cnt)
+	}
+
+	wg.Wait()
+	return cntAgentsStarted, time.Since(startTime)
+}
+
 func generateMsg(size int) []byte {
 	buf := make([]byte, size)
 	rand.Read(buf)
 	return buf
+}
+
+func getValue(value, def int) int {
+	if value != 0 {
+		return value
+	}
+	return def
 }

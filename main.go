@@ -15,10 +15,10 @@ import (
 	"github.com/maticnetwork/libp2p-gossip-bench/network"
 )
 
-const AgentsNumber = 100
-const StartAgentsRoutines = 40
+const AgentsNumber = 400
+const StartAgentsRoutines = 100
 const StartingPort = 10000
-const MaxPeers = 7
+const MaxPeers = 10
 const MsgSize = 4096
 const IpString = "127.0.0.1"
 
@@ -39,7 +39,15 @@ func main() {
 
 	fmt.Println("Start adding agents: ", AgentsNumber)
 
-	startAgents(cluster, transportManager, latencyData)
+	agentsAdded, timeAdded := cluster.StartAgents(AgentsNumber, StartAgentsRoutines, func(id int) network.ClusterAgent {
+		ac := &agent.AgentConfig{
+			City:          latencyData.GetRandomCity(),
+			Transport:     transportManager.Transport(),
+			MsgReceivedFn: cluster.MsgReceived,
+		}
+		return agent.NewAgent(logger, ac)
+	})
+	fmt.Printf("Added %d agents. Ellapsed: %v\n", agentsAdded, timeAdded)
 	connectAgents(cluster)
 
 	fmt.Println("Gossip started")
@@ -47,43 +55,6 @@ func main() {
 	fmt.Printf("Published %d messages \n", msgsPublishedCnt)
 	fmt.Printf("Failed %d messages \n", msgsFailedCnt)
 	cluster.PrintReceiversStats()
-}
-
-func startAgents(cluster *network.Cluster, transportManager *network.TransportManager, latencyData *lat.LatencyData) {
-	startTime := time.Now()
-	wg := sync.WaitGroup{}
-	wg.Add(StartAgentsRoutines)
-
-	cntAgentsStarted := int64(0)
-	cntPerRoutine := (AgentsNumber + StartAgentsRoutines - 1) / StartAgentsRoutines
-	for i := 0; i < StartAgentsRoutines; i++ {
-		cnt := cntPerRoutine
-		if cnt+i*cntPerRoutine > AgentsNumber {
-			cnt = AgentsNumber - i*cntPerRoutine
-		}
-
-		go func(cntAgents int) {
-			for i := 1; i <= cntAgents; i++ {
-				ac := &agent.AgentConfig{
-					City:          latencyData.GetRandomCity(),
-					Transport:     transportManager.Transport(),
-					MsgReceivedFn: cluster.MsgReceived,
-				}
-				a := agent.NewAgent(logger, ac)
-				_, err := cluster.AddAgent(a)
-				if err != nil {
-					fmt.Printf("Could not start peer %d\n", atomic.LoadInt64(&cntAgentsStarted))
-				} else {
-					atomic.AddInt64(&cntAgentsStarted, 1)
-				}
-			}
-
-			wg.Done()
-		}(cnt)
-	}
-
-	wg.Wait()
-	fmt.Printf("Started %d agents. Ellapsed: %v\n", cntAgentsStarted, time.Since(startTime))
 }
 
 func connectAgents(cluster *network.Cluster) {

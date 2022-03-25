@@ -7,13 +7,12 @@ import (
 	"log"
 	"time"
 
-	"github.com/maticnetwork/libp2p-gossip-bench/network"
-
 	"github.com/libp2p/go-libp2p"
 	"github.com/libp2p/go-libp2p-core/host"
 	"github.com/libp2p/go-libp2p-core/peer"
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
 	configLibp2p "github.com/libp2p/go-libp2p/config"
+	"github.com/maticnetwork/libp2p-gossip-bench/network"
 	ma "github.com/multiformats/go-multiaddr"
 )
 
