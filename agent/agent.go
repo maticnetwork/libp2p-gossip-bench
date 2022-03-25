@@ -38,11 +38,10 @@ const (
 )
 
 type Agent struct {
-	Host      host.Host
-	Logger    *log.Logger
-	GossipSub *pubsub.PubSub
-	Config    *AgentConfig
-	Topic     *pubsub.Topic
+	Host   host.Host
+	Logger *log.Logger
+	Config *AgentConfig
+	Topic  *pubsub.Topic
 }
 
 var _ network.ClusterAgent = &Agent{}
@@ -113,7 +112,7 @@ func (a *Agent) Listen(ipString string, port int) error {
 
 	readLoop(sub, host.ID(), a.Config.MsgReceivedFn)
 
-	a.Host, a.GossipSub, a.Topic = host, ps, topic
+	a.Host, a.Topic = host, topic
 	return nil
 }
 
