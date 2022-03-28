@@ -1,161 +1,85 @@
 package main
 
 import (
-	"flag"
+	"context"
 	"fmt"
-	"io/ioutil"
 	"log"
-	"net"
-	"net/http"
+	"math/rand"
 	"os"
-	"os/signal"
-	"strconv"
 	"sync"
-	"syscall"
+	"sync/atomic"
+	"time"
 
-	"github.com/google/uuid"
-
-	"github.com/hashicorp/go-sockaddr/template"
 	"github.com/maticnetwork/libp2p-gossip-bench/agent"
+	lat "github.com/maticnetwork/libp2p-gossip-bench/latency"
+	"github.com/maticnetwork/libp2p-gossip-bench/network"
 )
 
+const AgentsNumber = 400
+const StartingPort = 10000
+const MaxPeers = 10
+const MsgSize = 4096
+const IpString = "127.0.0.1"
+
+var logger *log.Logger = log.New(os.Stdout, "Mesh: ", log.Flags())
+
 func main() {
-	cmd := os.Args[1]
-	os.Args = os.Args[1:] // if we dont do this the flags are not parsed correctly
+	rand.Seed(time.Now().Unix())
 
-	if cmd == "server" {
-		serverCmd()
-	} else if cmd == "publish" {
-		publishCmd()
-	} else if cmd == "gather" {
-		gatherCmd()
-	} else {
-		panic("NOT FOUND " + cmd)
-	}
+	connManager := network.NewConnManagerNetPipe()
+	latencyData := lat.ReadLatencyDataFromJson()
+	cluster := network.NewCluster(logger, latencyData.FindLatency, network.ClusterConfig{
+		Ip:           IpString,
+		StartingPort: StartingPort,
+		MaxPeers:     MaxPeers,
+		MsgSize:      MsgSize,
+	})
+	transportManager := network.NewTransportManager(connManager, cluster)
+
+	fmt.Println("Start adding agents: ", AgentsNumber)
+
+	agentsAdded, timeAdded := cluster.StartAgents(AgentsNumber, func(id int) (network.ClusterAgent, string) {
+		ac := agent.NewDefaultAgentConfig()
+		ac.Transport = transportManager.Transport()
+		ac.MsgReceivedFn = cluster.MsgReceived
+		return agent.NewAgent(logger, ac), latencyData.GetRandomCity()
+	})
+	fmt.Printf("Added %d agents. Ellapsed: %v\n", agentsAdded, timeAdded)
+	connectAgents(cluster)
+
+	fmt.Println("Gossip started")
+	msgsPublishedCnt, msgsFailedCnt := cluster.GossipLoop(context.Background(), time.Millisecond*900, time.Second*30)
+	fmt.Printf("Published %d messages \n", msgsPublishedCnt)
+	fmt.Printf("Failed %d messages \n", msgsFailedCnt)
+	cluster.PrintReceiversStats()
 }
 
-func gatherCmd() {
-	var output string
+func connectAgents(cluster *network.Cluster) {
+	startTime := time.Now()
+	wg := sync.WaitGroup{}
+	wg.Add(AgentsNumber)
+	cntAgentsConnected := int64(0)
 
-	flag.StringVar(&output, "output", "", "")
-	flag.Parse()
-
-	output = "test-" + output
-	if _, err := os.Stat(output); !os.IsNotExist(err) {
-		panic("folder exists")
-	}
-
-	if err := os.Mkdir(output, 0755); err != nil {
-		panic(err)
-	}
-}
-
-func publishCmd() {
-	var numPublishers uint64
-	var numMessages uint64
-	var size uint64
-
-	flag.Uint64Var(&numPublishers, "num-publishers", 0, "")
-	flag.Uint64Var(&numMessages, "num-messages", 1, "")
-	flag.Uint64Var(&size, "size", 100, "")
-	flag.Parse()
-
-	if numPublishers == 0 {
-		panic("no publishers in args")
-	}
-
-	var wg sync.WaitGroup
-
-	for i := 40000; i < 40000+int(numPublishers); i++ {
-		wg.Add(1)
+	for i := 1; i <= AgentsNumber; i++ {
 		go func(i int) {
-			defer wg.Done()
-
-			url := "http://localhost:" + strconv.Itoa(i) + "/publish?size=" + strconv.Itoa(int(size))
-			resp, err := query(url)
-			fmt.Println(url, resp, err)
-			// workCh <- url
+			size := AgentsNumber / MaxPeers
+			cnt := 0
+			for j := i + size; j <= AgentsNumber; j += size {
+				err := cluster.Connect(i+StartingPort, StartingPort+j)
+				if err != nil {
+					fmt.Println("Could not connect peers ", i+StartingPort, " ", StartingPort+j, " ", err)
+				} else {
+					cnt++
+					atomic.AddInt64(&cntAgentsConnected, 1)
+				}
+			}
+			wg.Done()
+			if cnt > 0 {
+				fmt.Printf("Peer %d dialed %d peers\n", i, cnt)
+			}
 		}(i)
 	}
-	// close(workCh)
+
 	wg.Wait()
-}
-
-func query(url string) (string, error) {
-	resp, err := http.Get(url)
-	if err != nil {
-		return "", err
-	}
-	body, err := ioutil.ReadAll(resp.Body)
-	if err != nil {
-		return "", err
-	}
-	sb := string(body)
-	return sb, nil
-}
-
-func serverCmd() {
-	var bindAddr, proxyAddr, httpAddr, rendezvousString, city string
-	var maxPeers, minInterval int64
-
-	flag.StringVar(&bindAddr, "bind-addr", "0.0.0.0:3000", "")
-	flag.StringVar(&proxyAddr, "proxy-addr", "", "")
-	flag.StringVar(&rendezvousString, "rendezvous", "meetme", "")
-	flag.StringVar(&httpAddr, "http-addr", "", "")
-	flag.StringVar(&city, "city", "", "")
-	flag.Int64Var(&maxPeers, "max-peers", -1, "")
-	flag.Int64Var(&minInterval, "min-interval", -1, "")
-
-	flag.Parse()
-
-	var err error
-
-	config := agent.DefaultConfig()
-	config.MaxPeers = maxPeers
-	config.MinInterval = minInterval
-
-	config.ID = uuid.New().String()
-
-	config.City = city
-	if config.Addr, err = getTCPAddr(bindAddr); err != nil {
-		panic(err)
-	}
-	if httpAddr != "" {
-		if config.HttpAddr, err = getTCPAddr(httpAddr); err != nil {
-			panic(err)
-		}
-	}
-
-	config.RendezvousString = rendezvousString
-	logger := log.New(os.Stdout, "", 0)
-
-	a, err := agent.NewAgent(logger, config)
-	if err != nil {
-		panic(err)
-	}
-	handleSignals(a)
-}
-
-func getTCPAddr(raw string) (*net.TCPAddr, error) {
-	addr, err := template.Parse(raw)
-	if err != nil {
-		return nil, err
-	}
-	host, portStr, err := net.SplitHostPort(addr)
-	if err != nil {
-		return nil, err
-	}
-	port, err := strconv.Atoi(portStr)
-	if err != nil {
-		return nil, err
-	}
-	return &net.TCPAddr{IP: net.ParseIP(host), Port: port}, nil
-}
-
-func handleSignals(a *agent.Agent) {
-	signalCh := make(chan os.Signal, 4)
-	signal.Notify(signalCh, os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
-
-	<-signalCh
-	os.Exit(0)
+	fmt.Printf("Connected %d agents. Ellapsed: %v\n", cntAgentsConnected, time.Since(startTime))
 }

@@ -2,229 +2,186 @@ package agent
 
 import (
 	"context"
-	"crypto/sha256"
 	_ "embed"
-	"encoding/hex"
-	"encoding/json"
 	"fmt"
-	"io/ioutil"
 	"log"
-	"math/rand"
-	"net"
-	"net/http"
-	"os"
-	"strconv"
 	"time"
-
-	"github.com/labstack/echo/v4"
-	"github.com/sirupsen/logrus"
 
 	"github.com/libp2p/go-libp2p"
 	"github.com/libp2p/go-libp2p-core/host"
+	libp2pnetwork "github.com/libp2p/go-libp2p-core/network"
 	"github.com/libp2p/go-libp2p-core/peer"
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
 	configLibp2p "github.com/libp2p/go-libp2p/config"
-	"github.com/multiformats/go-multiaddr"
+	"github.com/maticnetwork/libp2p-gossip-bench/network"
+	ma "github.com/multiformats/go-multiaddr"
 )
 
-//go:embed latencies.json
-var latencyDataRaw string
+var connectionHelper agentConnectionHelper = newAgentConnectionHelper()
 
 type Agent struct {
-	host      host.Host
-	logger    *log.Logger
-	gossipSub *pubsub.PubSub
-	config    *Config
-	topic     *pubsub.Topic
-	latency   *LatencyData
+	Host   host.Host
+	Logger *log.Logger
+	Config *AgentConfig
+	Topic  *pubsub.Topic
 }
 
-type Config struct {
-	Addr             *net.TCPAddr
-	HttpAddr         *net.TCPAddr
-	RendezvousString string
-	City             string
-	ID               string
-	MaxPeers         int64
-	MinInterval      int64
-	Transport        configLibp2p.TptC
+var _ network.ClusterAgent = &Agent{}
+
+type AgentConfig struct {
+	Transport     configLibp2p.TptC
+	MsgReceivedFn network.MsgReceived
+
+	// overlay parameters
+	GossipSubD   int // topic stable mesh target count
+	GossipSubDlo int // topic stable mesh low watermark
+	GossipSubDhi int // topic stable mesh high watermark
+
+	// gossip parameters
+	GossipSubMcacheLen    int // number of windows to retain full messages in cache for `IWANT` responses
+	GossipSubMcacheGossip int // number of windows to gossip about
+	GossipSubSeenTTL      int // number of heartbeat intervals to retain message IDs
+
+	// fanout ttl
+	GossipSubFanoutTTL int // TTL for fanout maps for topics we are not subscribed to but have published to, in nano seconds
+
+	// heartbeat interval
+	GossipSubHeartbeatInterval time.Duration // frequency of heartbeat, milliseconds
+
+	// pubsubQueueSize is the size that we assign to our validation queue and outbound message queue for
+	PubsubQueueSize int
 }
 
-func DefaultConfig() *Config {
-	c := &Config{
-		//Addr:     &net.TCPAddr{IP: net.ParseIP("127.0.0.1"), Port: 6000},
-		//HttpAddr: &net.TCPAddr{IP: net.ParseIP("0.0.0.0"), Port: 7000},
+func NewDefaultAgentConfig() *AgentConfig {
+	return &AgentConfig{
+		GossipSubD:                 8,
+		GossipSubDlo:               6,
+		GossipSubDhi:               12,
+		GossipSubMcacheLen:         6,
+		GossipSubMcacheGossip:      3,
+		GossipSubSeenTTL:           550,
+		GossipSubFanoutTTL:         60000000000,
+		GossipSubHeartbeatInterval: 700 * time.Millisecond,
+		PubsubQueueSize:            600,
 	}
-	return c
 }
 
-// pubsubQueueSize is the size that we assign to our validation queue and outbound message queue for
 // gossipsub.
-const pubsubQueueSize = 600
+// topic for pubsub
+const topicName = "Topic"
 
-func NewAgent(logger *log.Logger, config *Config) (*Agent, error) {
-	listenAddr, err := multiaddr.NewMultiaddr(fmt.Sprintf("/ip4/%s/tcp/%d", config.Addr.IP.String(), config.Addr.Port))
-	if err != nil {
-		return nil, err
+func NewAgent(logger *log.Logger, config *AgentConfig) *Agent {
+	return &Agent{
+		Logger: logger,
+		Config: config,
 	}
+}
 
-	addrsFactory := func(addrs []multiaddr.Multiaddr) []multiaddr.Multiaddr {
-		addr, _ := multiaddr.NewMultiaddr(fmt.Sprintf("/ip4/%s/tcp/%d", config.Addr.IP.String(), config.Addr.Port))
-
-		if addr != nil {
-			addrs = []multiaddr.Multiaddr{addr}
-		}
-
-		return addrs
+func (a *Agent) Listen(ipString string, port int) error {
+	listenAddr, err := ma.NewMultiaddr(fmt.Sprintf("/ip4/%s/tcp/%d", ipString, port))
+	if err != nil {
+		return err
 	}
 
 	host, err := libp2p.New(
 		libp2p.ListenAddrs(listenAddr),
-		libp2p.AddrsFactory(addrsFactory),
-		libp2p.Transport(config.Transport),
+		libp2p.Transport(a.Config.Transport),
 	)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create libp2p stack: %v", err)
+		return fmt.Errorf("failed to create libp2p stack: %v", err)
 	}
+
+	host.Network().Notify(&libp2pnetwork.NotifyBundle{
+		ConnectedF: func(n libp2pnetwork.Network, conn libp2pnetwork.Conn) {
+			// notify connectionHelper that peer with conn.RemoteMultiaddr() is connected to peer with conn.LocalMultiaddr()
+			connectionHelper.Connected(conn.LocalMultiaddr(), conn.RemoteMultiaddr())
+		},
+	})
 
 	// start gossip protocol
 	psOpts := []pubsub.Option{
 		pubsub.WithMessageSignaturePolicy(pubsub.StrictNoSign),
-		//pubsub.WithNoAuthor(),
-		pubsub.WithPeerOutboundQueueSize(pubsubQueueSize),
-		pubsub.WithValidateQueueSize(pubsubQueueSize),
-		pubsub.WithGossipSubParams(pubsubGossipParam()),
+		pubsub.WithPeerOutboundQueueSize(a.Config.PubsubQueueSize),
+		pubsub.WithValidateQueueSize(a.Config.PubsubQueueSize),
+		pubsub.WithGossipSubParams(a.getPubsubGossipParams()),
 	}
 	ps, err := pubsub.NewGossipSub(context.Background(), host, psOpts...)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
-	a := &Agent{
-		logger:    logger,
-		host:      host,
-		gossipSub: ps,
-		config:    config,
-	}
-
-	if config.HttpAddr != nil {
-		a.setupHttp()
-	}
-
-	// read latency
-	latency := readLatency()
-
-	// try to decode the city
-	if config.City == "" {
-		logger.Printf("Generate new city...")
-		config.City = latency.getRandomCity()
-	}
-
-	// start the proxy
-	logger.Printf("[INFO]: Address: %s", config.Addr.String())
-
-	logrus.SetFormatter(&logrus.JSONFormatter{})
-
-	// Output to stdout instead of the default stderr
-	// Can be any io.Writer, see below for File example
-	logrus.SetOutput(os.Stdout)
-
-	// Only log the warning severity or above.
-	logrus.SetLevel(logrus.WarnLevel)
-
-	// In 5% of the cases not sure why but this port is already in use, then, remove the proxy
-	// and use the normal connection.
-	// I think this should work fine
-
-	// TODO: handle latency here
-
-	logger.Printf("Agent started: addr=%s, city=%s", listenAddr.String(), config.City)
-
-	if config.MaxPeers == 0 {
-		panic("Max peers cannot be zero")
-	}
-	if config.MaxPeers > -1 {
-		logger.Printf("Max peers: %d", config.MaxPeers)
-	}
-
-	peerChan := initMDNS(host, config.RendezvousString)
-	go func() {
-		for {
-			peer := <-peerChan
-			logger.Printf("[INFO] Found peer: peer=%s", peer)
-
-			numPeers := len(host.Network().Peers())
-			if config.MaxPeers != -1 {
-				if numPeers > int(config.MaxPeers) {
-					logger.Printf("[INFO]: Skip peer")
-					continue
-				}
-			}
-
-			if err := host.Connect(context.Background(), peer); err != nil {
-				fmt.Println("Connection failed:", err)
-			}
-		}
-	}()
-
-	if a.topic, err = ps.Join("topic"); err != nil {
-		return nil, err
-	}
-	sub, err := a.topic.Subscribe()
+	// topic
+	topic, err := ps.Join(topicName)
 	if err != nil {
-		return nil, err
+		return err
 	}
-	readLoop(sub, func(msg *Msg) {
-		elapsed := time.Since(msg.Time)
-
-		logger.Printf("=> '%s' '%d' '%s' '%s' '%s' '%s'", elapsed, len(host.Network().Peers()), time.Now(), msg.From, msg.Hash, msg.Time)
-	})
-
-	if config.MinInterval != -1 {
-		go func() {
-			for {
-				now := time.Now()
-				if now.Minute()&int(config.MinInterval) == 0 {
-					logger.Printf("[INFO]: Public at interval %d %d", config.MinInterval, now.Minute())
-					go a.publish(100)
-				}
-				time.Sleep(1 * time.Minute)
-			}
-		}()
+	sub, err := topic.Subscribe()
+	if err != nil {
+		return err
 	}
 
-	return a, nil
+	readLoop(sub, host.ID(), a.Config.MsgReceivedFn)
+
+	a.Host, a.Topic = host, topic
+	return nil
 }
 
-const (
-	// overlay parameters
-	gossipSubD   = 8  // topic stable mesh target count
-	gossipSubDlo = 6  // topic stable mesh low watermark
-	gossipSubDhi = 12 // topic stable mesh high watermark
+func (a *Agent) Connect(remote network.ClusterAgent) error {
+	localAddr, remoteAddr := a.Host.Addrs()[0], remote.(*Agent).Addr()
+	peer, err := peer.AddrInfoFromP2pAddr(remoteAddr)
+	if err != nil {
+		return err
+	}
 
-	// gossip parameters
-	gossipSubMcacheLen    = 6   // number of windows to retain full messages in cache for `IWANT` responses
-	gossipSubMcacheGossip = 3   // number of windows to gossip about
-	gossipSubSeenTTL      = 550 // number of heartbeat intervals to retain message IDs
+	// do not exit Connect until both nodes are connected
+	connectionHelper.Add(localAddr, remoteAddr)
+	defer connectionHelper.Delete(localAddr, remoteAddr)
+	err = a.Host.Connect(context.Background(), *peer)
+	if err != nil {
+		return err
+	}
+	connectionHelper.Wait(localAddr, remoteAddr)
+	return nil
+}
 
-	// fanout ttl
-	gossipSubFanoutTTL = 60000000000 // TTL for fanout maps for topics we are not subscribed to but have published to, in nano seconds
+func (a *Agent) Disconnect(remote network.ClusterAgent) error {
+	remoteAddr := remote.(*Agent).Addr()
+	for _, conn := range a.Host.Network().Conns() {
+		if conn.RemoteMultiaddr().Equal(remoteAddr) {
+			return conn.Close()
+		}
+	}
+	return fmt.Errorf("could not disconnect from %s to %s", a.Host.Addrs()[0], remote)
+}
 
-	// heartbeat interval
-	gossipSubHeartbeatInterval = 700 * time.Millisecond // frequency of heartbeat, milliseconds
+func (a *Agent) Gossip(data []byte) error {
+	return a.Topic.Publish(context.Background(), data)
+}
 
-	// misc
-	randomSubD = 6 // random gossip target
-)
+func (a *Agent) Stop() error {
+	return a.Host.Close()
+}
+
+func (a *Agent) NumPeers() int {
+	return a.Host.Peerstore().Peers().Len() - 1 // libp2p holds itself in list
+}
+
+func (a *Agent) Addr() ma.Multiaddr {
+	port, _ := a.Host.Addrs()[0].ValueForProtocol(ma.P_TCP)
+	ip, _ := a.Host.Addrs()[0].ValueForProtocol(ma.P_IP4)
+	id := fmt.Sprintf("/ip4/%s/tcp/%s/p2p/%s", ip, port, a.Host.ID())
+	listenAddr, _ := ma.NewMultiaddr(id)
+	return listenAddr
+}
 
 // creates a custom gossipsub parameter set.
-func pubsubGossipParam() pubsub.GossipSubParams {
+func (a *Agent) getPubsubGossipParams() pubsub.GossipSubParams {
 	gParams := pubsub.DefaultGossipSubParams()
-	gParams.Dlo = gossipSubDlo
-	gParams.D = gossipSubD
-	gParams.HeartbeatInterval = gossipSubHeartbeatInterval
-	gParams.HistoryLength = gossipSubMcacheLen
-	gParams.HistoryGossip = gossipSubMcacheGossip
+	gParams.Dlo = a.Config.GossipSubDlo
+	gParams.D = a.Config.GossipSubD
+	gParams.HeartbeatInterval = a.Config.GossipSubHeartbeatInterval
+	gParams.HistoryLength = a.Config.GossipSubMcacheLen
+	gParams.HistoryGossip = a.Config.GossipSubMcacheGossip
 
 	// Set a larger gossip history to ensure that slower
 	// messages have a longer time to be propagated. This
@@ -237,179 +194,16 @@ func pubsubGossipParam() pubsub.GossipSubParams {
 	return gParams
 }
 
-type Msg struct {
-	From string
-	Time time.Time
-	Data string // Just some bulk random data
-	Hash string
-}
-
-func query(url string) (string, error) {
-	resp, err := http.Get(url)
-	if err != nil {
-		return "", err
-	}
-	body, err := ioutil.ReadAll(resp.Body)
-	if err != nil {
-		return "", err
-	}
-	sb := string(body)
-	return sb, nil
-}
-
-func (a *Agent) Stop() {
-	a.host.Close()
-}
-
-func (a *Agent) publish(size int) {
-	now := time.Now()
-
-	data := make([]byte, size)
-	rand.Read(data)
-
-	hash := hashit(data)
-
-	a.logger.Printf("Publish '%s' '%s'", hash, now)
-
-	msg := &Msg{
-		From: a.config.ID,
-		Time: now,
-		Data: string(data),
-		Hash: hash,
-	}
-	raw, err := json.Marshal(msg)
-	if err != nil {
-		panic(err)
-	}
-	if err := a.topic.Publish(context.Background(), raw); err != nil {
-		panic(err)
-	}
-}
-
-func hashit(b []byte) string {
-	h := sha256.New()
-	h.Write(b)
-	dst := h.Sum(nil)
-	return hex.EncodeToString(dst)
-}
-
-func (a *Agent) setupHttp() {
-	e := echo.New()
-	e.HideBanner = true
-	e.Logger.SetOutput(ioutil.Discard)
-
-	e.GET("/system/city", func(c echo.Context) error {
-		return c.String(http.StatusOK, a.config.City)
-	})
-	e.GET("/system/id", func(c echo.Context) error {
-		return c.String(http.StatusOK, a.config.ID)
-	})
-	e.GET("/publish", func(c echo.Context) error {
-
-		size := 1024
-		if sizeStr := c.QueryParam("size"); sizeStr != "" {
-			s, err := strconv.Atoi(sizeStr)
-			if err != nil {
-				panic(err)
-			}
-			size = s
-		}
-
-		go a.publish(size)
-		return c.JSON(http.StatusOK, map[string]interface{}{})
-	})
-
-	go func() {
-		a.logger.Printf("Start http server: addr=%s", a.config.HttpAddr.String())
-		if err := e.Start(a.config.HttpAddr.String()); err != nil {
-			panic(err)
-		}
-	}()
-}
-
-type discoveryNotifee struct {
-	PeerChan chan peer.AddrInfo
-}
-
-//interface to be called when new  peer is found
-func (n *discoveryNotifee) HandlePeerFound(pi peer.AddrInfo) {
-	n.PeerChan <- pi
-}
-
-//Initialize the MDNS service
-func initMDNS(peerhost host.Host, rendezvous string) chan peer.AddrInfo {
-	// register with service so that we get notified about peer discovery
-	n := &discoveryNotifee{}
-	n.PeerChan = make(chan peer.AddrInfo)
-
-	// An hour might be a long long period in practical applications. But this is fine for us
-
-	return n.PeerChan
-}
-
-func readLoop(sub *pubsub.Subscription, handler func(msg *Msg)) {
+func readLoop(sub *pubsub.Subscription, lid peer.ID, handler func(lid, rid string, data []byte)) {
 	go func() {
 		for {
 			raw, err := sub.Next(context.Background())
 			if err != nil {
+				fmt.Printf("Peer %v error receiving message on topic: %v\n", lid, err)
 				continue
 			}
-			var msg *Msg
-			if err := json.Unmarshal(raw.Data, &msg); err != nil {
-				panic(err)
-			}
-			handler(msg)
+			// fmt.Printf("Peer %v received data from %v\n", a.Host.ID(), from)
+			handler(lid.Pretty(), raw.ReceivedFrom.Pretty(), raw.Data)
 		}
 	}()
-}
-
-type LatencyData struct {
-	PingData map[string]map[string]struct {
-		Avg string
-	}
-	SourcesList []struct {
-		Id   string
-		Name string
-	}
-	sources map[string]string
-}
-
-func (l *LatencyData) getRandomCity() string {
-	n := rand.Int() % len(l.SourcesList)
-	city := l.SourcesList[n].Name
-	return city
-}
-
-func (l *LatencyData) checkCity(from string) bool {
-	_, ok := l.sources[from]
-	return ok
-}
-
-func (l *LatencyData) FindLatency(from, to string) time.Duration {
-	fromID := l.sources[from]
-	toID := l.sources[to]
-
-	avg := l.PingData[fromID][toID].Avg
-	if avg == "" {
-		return 0
-	}
-	dur, err := time.ParseDuration(avg + "ms")
-	if err != nil {
-		fmt.Println(from, to, fromID, toID, avg)
-		panic(err)
-	}
-	return dur
-}
-
-func readLatency() *LatencyData {
-	var latencyData LatencyData
-	if err := json.Unmarshal([]byte(latencyDataRaw), &latencyData); err != nil {
-		panic(err)
-	}
-
-	latencyData.sources = map[string]string{}
-	for _, i := range latencyData.SourcesList {
-		latencyData.sources[i.Name] = i.Id
-	}
-	return &latencyData
 }
