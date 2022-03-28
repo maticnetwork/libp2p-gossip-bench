@@ -93,8 +93,8 @@ func (a *Agent) Listen(ipString string, port int) error {
 
 	host.Network().Notify(&libp2pnetwork.NotifyBundle{
 		ConnectedF: func(n libp2pnetwork.Network, conn libp2pnetwork.Conn) {
-			// notify WaitWroup inside connectionHelper about connection
-			connectionHelper.Connected(conn.LocalMultiaddr(), conn.RemoteMultiaddr(), conn.Stat().Direction != libp2pnetwork.DirInbound)
+			// notify connectionHelper that peer with conn.RemoteMultiaddr() is connected to peer with conn.LocalMultiaddr()
+			connectionHelper.Connected(conn.LocalMultiaddr(), conn.RemoteMultiaddr())
 		},
 	})
 

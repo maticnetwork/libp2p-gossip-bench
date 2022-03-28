@@ -22,7 +22,7 @@ func newAgentConnectionHelper() agentConnectionHelper {
 }
 
 func (acg *agentConnectionHelper) Add(laddr, raddr ma.Multiaddr) error {
-	key := acg.getKey(laddr, raddr, true)
+	key := acg.getKey(laddr, raddr)
 	acg.lock.RLock()
 	wg := acg.wgs[key]
 	acg.lock.RUnlock()
@@ -38,7 +38,7 @@ func (acg *agentConnectionHelper) Add(laddr, raddr ma.Multiaddr) error {
 }
 
 func (acg *agentConnectionHelper) Wait(laddr, raddr ma.Multiaddr) error {
-	wg, err := acg.getWaitGroup(laddr, raddr, true)
+	wg, err := acg.getWaitGroup(laddr, raddr)
 	if err != nil {
 		return err
 	}
@@ -47,7 +47,7 @@ func (acg *agentConnectionHelper) Wait(laddr, raddr ma.Multiaddr) error {
 }
 
 func (acg *agentConnectionHelper) WaitWithTimeout(laddr, raddr ma.Multiaddr, timeout time.Duration) error {
-	wg, err := acg.getWaitGroup(laddr, raddr, true)
+	wg, err := acg.getWaitGroup(laddr, raddr)
 	if err != nil {
 		return err
 	}
@@ -66,14 +66,14 @@ func (acg *agentConnectionHelper) WaitWithTimeout(laddr, raddr ma.Multiaddr, tim
 }
 
 func (acg *agentConnectionHelper) Delete(laddr, raddr ma.Multiaddr) {
-	key := acg.getKey(laddr, raddr, true)
+	key := acg.getKey(laddr, raddr)
 	acg.lock.Lock()
 	defer acg.lock.Unlock()
 	delete(acg.wgs, key)
 }
 
-func (acg *agentConnectionHelper) Connected(laddr, raddr ma.Multiaddr, outbound bool) error {
-	wg, err := acg.getWaitGroup(laddr, raddr, outbound)
+func (acg *agentConnectionHelper) Connected(laddr, raddr ma.Multiaddr) error {
+	wg, err := acg.getWaitGroup(laddr, raddr)
 	if err != nil {
 		return err
 	}
@@ -81,8 +81,8 @@ func (acg *agentConnectionHelper) Connected(laddr, raddr ma.Multiaddr, outbound 
 	return nil
 }
 
-func (acg *agentConnectionHelper) getWaitGroup(laddr, raddr ma.Multiaddr, outbound bool) (*sync.WaitGroup, error) {
-	key := acg.getKey(laddr, raddr, outbound)
+func (acg *agentConnectionHelper) getWaitGroup(laddr, raddr ma.Multiaddr) (*sync.WaitGroup, error) {
+	key := acg.getKey(laddr, raddr)
 	acg.lock.RLock()
 	wg := acg.wgs[key]
 	acg.lock.RUnlock()
@@ -92,12 +92,12 @@ func (acg *agentConnectionHelper) getWaitGroup(laddr, raddr ma.Multiaddr, outbou
 	return wg, nil
 }
 
-func (acg *agentConnectionHelper) getKey(laddr, raddr ma.Multiaddr, outbound bool) int64 {
+func (acg *agentConnectionHelper) getKey(laddr, raddr ma.Multiaddr) int64 {
 	lportStr, _ := laddr.ValueForProtocol(ma.P_TCP)
 	rportStr, _ := raddr.ValueForProtocol(ma.P_TCP)
 	lport, _ := strconv.Atoi(lportStr)
 	rport, _ := strconv.Atoi(rportStr)
-	if outbound {
+	if lport < rport {
 		return int64(lport) + (int64(rport) << 32)
 	}
 	return int64(rport) + (int64(lport) << 32)
