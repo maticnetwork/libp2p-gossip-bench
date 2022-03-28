@@ -9,6 +9,7 @@ import (
 
 	"github.com/libp2p/go-libp2p"
 	"github.com/libp2p/go-libp2p-core/host"
+	libp2pnetwork "github.com/libp2p/go-libp2p-core/network"
 	"github.com/libp2p/go-libp2p-core/peer"
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
 	configLibp2p "github.com/libp2p/go-libp2p/config"
@@ -16,7 +17,7 @@ import (
 	ma "github.com/multiformats/go-multiaddr"
 )
 
-const ()
+var connectionHelper agentConnectionHelper = newAgentConnectionHelper()
 
 type Agent struct {
 	Host   host.Host
@@ -90,6 +91,13 @@ func (a *Agent) Listen(ipString string, port int) error {
 		return fmt.Errorf("failed to create libp2p stack: %v", err)
 	}
 
+	host.Network().Notify(&libp2pnetwork.NotifyBundle{
+		ConnectedF: func(n libp2pnetwork.Network, conn libp2pnetwork.Conn) {
+			// notify WaitWroup inside connectionHelper about connection
+			connectionHelper.Connected(conn.LocalMultiaddr(), conn.RemoteMultiaddr(), conn.Stat().Direction != libp2pnetwork.DirInbound)
+		},
+	})
+
 	// start gossip protocol
 	psOpts := []pubsub.Option{
 		pubsub.WithMessageSignaturePolicy(pubsub.StrictNoSign),
@@ -119,12 +127,21 @@ func (a *Agent) Listen(ipString string, port int) error {
 }
 
 func (a *Agent) Connect(remote network.ClusterAgent) error {
-	remoteAddr := remote.(*Agent).Addr()
+	localAddr, remoteAddr := a.Host.Addrs()[0], remote.(*Agent).Addr()
 	peer, err := peer.AddrInfoFromP2pAddr(remoteAddr)
 	if err != nil {
 		return err
 	}
-	return a.Host.Connect(context.Background(), *peer)
+
+	// do not exit Connect until both nodes are connected
+	connectionHelper.Add(localAddr, remoteAddr)
+	defer connectionHelper.Delete(localAddr, remoteAddr)
+	err = a.Host.Connect(context.Background(), *peer)
+	if err != nil {
+		return err
+	}
+	connectionHelper.Wait(localAddr, remoteAddr)
+	return nil
 }
 
 func (a *Agent) Disconnect(remote network.ClusterAgent) error {
