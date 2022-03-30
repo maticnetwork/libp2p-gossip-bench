@@ -6,8 +6,6 @@ import (
 	"log"
 	"math/rand"
 	"os"
-	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/maticnetwork/libp2p-gossip-bench/agent"
@@ -45,41 +43,11 @@ func main() {
 		return agent.NewAgent(logger, ac), latencyData.GetRandomCity()
 	})
 	fmt.Printf("Added %d agents. Ellapsed: %v\n", agentsAdded, timeAdded)
-	connectAgents(cluster)
+	cluster.ConnectAgents(network.LinearTopology{NumNodes: 10})
 
 	fmt.Println("Gossip started")
 	msgsPublishedCnt, msgsFailedCnt := cluster.GossipLoop(context.Background(), time.Millisecond*900, time.Second*30)
 	fmt.Printf("Published %d messages \n", msgsPublishedCnt)
 	fmt.Printf("Failed %d messages \n", msgsFailedCnt)
 	cluster.PrintReceiversStats()
-}
-
-func connectAgents(cluster *network.Cluster) {
-	startTime := time.Now()
-	wg := sync.WaitGroup{}
-	wg.Add(AgentsNumber)
-	cntAgentsConnected := int64(0)
-
-	for i := 1; i <= AgentsNumber; i++ {
-		go func(i int) {
-			size := AgentsNumber / MaxPeers
-			cnt := 0
-			for j := i + size; j <= AgentsNumber; j += size {
-				err := cluster.Connect(i+StartingPort, StartingPort+j)
-				if err != nil {
-					fmt.Println("Could not connect peers ", i+StartingPort, " ", StartingPort+j, " ", err)
-				} else {
-					cnt++
-					atomic.AddInt64(&cntAgentsConnected, 1)
-				}
-			}
-			wg.Done()
-			if cnt > 0 {
-				fmt.Printf("Peer %d dialed %d peers\n", i, cnt)
-			}
-		}(i)
-	}
-
-	wg.Wait()
-	fmt.Printf("Connected %d agents. Ellapsed: %v\n", cntAgentsConnected, time.Since(startTime))
 }
