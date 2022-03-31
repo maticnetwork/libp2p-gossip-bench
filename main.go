@@ -43,7 +43,7 @@ func main() {
 		return agent.NewAgent(logger, ac), latencyData.GetRandomCity()
 	})
 	fmt.Printf("Added %d agents. Ellapsed: %v\n", agentsAdded, timeAdded)
-	cluster.ConnectAgents(network.LinearTopology{NumNodes: 10})
+	cluster.ConnectAgents(network.LinearTopology{})
 
 	fmt.Println("Gossip started")
 	msgsPublishedCnt, msgsFailedCnt := cluster.GossipLoop(context.Background(), time.Millisecond*900, time.Second*30)

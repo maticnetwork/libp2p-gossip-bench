@@ -12,10 +12,7 @@ type Topology interface {
 	MakeConnections(agents map[int]agentContainer)
 }
 
-type LinearTopology struct {
-	// number of nodes
-	NumNodes int
-}
+type LinearTopology struct{}
 
 func (t LinearTopology) MakeConnections(agents map[int]agentContainer) {
 	keys := make([]int, 0)
@@ -26,7 +23,7 @@ func (t LinearTopology) MakeConnections(agents map[int]agentContainer) {
 
 	startTime := time.Now()
 	wg := sync.WaitGroup{}
-	wg.Add(t.NumNodes)
+	wg.Add(len(agents))
 	cntAgentsConnected := int64(0)
 
 	for i, key := range keys {
