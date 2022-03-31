@@ -22,25 +22,24 @@ func (t LinearTopology) MakeConnections(agents map[int]agentContainer) {
 	sort.Ints(keys)
 
 	startTime := time.Now()
+	connectionsNum := len(agents) - 1
 	wg := sync.WaitGroup{}
-	wg.Add(len(agents))
+	wg.Add(connectionsNum)
 	cntAgentsConnected := int64(0)
 
-	for i, key := range keys {
-		if i <= len(keys)-1 {
-			go func(i int) {
-				defer wg.Done()
+	for i := 0; i <= connectionsNum-1; i++ {
+		go func(i int) {
+			defer wg.Done()
 
-				source := agents[key].agent
-				sink := agents[keys[i+1]].agent
-				err := source.Connect(sink)
-				if err != nil {
-					fmt.Println("Could not connect peers ", key, " ", keys[i+1], " ", err)
-				} else {
-					atomic.AddInt64(&cntAgentsConnected, 1)
-				}
-			}(i)
-		}
+			source := agents[keys[i]].agent
+			sink := agents[keys[i+1]].agent
+			err := source.Connect(sink)
+			if err != nil {
+				fmt.Println("Could not connect peers ", keys[i], " ", keys[i+1], " ", err)
+			} else {
+				atomic.AddInt64(&cntAgentsConnected, 1)
+			}
+		}(i)
 	}
 
 	wg.Wait()
