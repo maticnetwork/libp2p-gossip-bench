@@ -9,7 +9,7 @@ import (
 // Holds list of all connection pairs (source and destination ClusterAgent)
 type connectionsList []struct {
 	src  ClusterAgent
-	dest ClusterAgent
+	dest ClusterAgente
 }
 
 // Creates new connectionsList
