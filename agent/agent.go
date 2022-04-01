@@ -13,7 +13,6 @@ import (
 	"github.com/libp2p/go-libp2p-core/peer"
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
 	configLibp2p "github.com/libp2p/go-libp2p/config"
-	"github.com/maticnetwork/libp2p-gossip-bench/network"
 	ma "github.com/multiformats/go-multiaddr"
 )
 
@@ -26,11 +25,11 @@ type Agent struct {
 	Topic  *pubsub.Topic
 }
 
-var _ network.ClusterAgent = &Agent{}
+var _ ClusterAgent = &Agent{}
 
 type AgentConfig struct {
 	Transport     configLibp2p.TptC
-	MsgReceivedFn network.MsgReceived
+	MsgReceivedFn MsgReceived
 
 	// overlay parameters
 	GossipSubD   int // topic stable mesh target count
@@ -126,7 +125,7 @@ func (a *Agent) Listen(ipString string, port int) error {
 	return nil
 }
 
-func (a *Agent) Connect(remote network.ClusterAgent) error {
+func (a *Agent) Connect(remote ClusterAgent) error {
 	localAddr, remoteAddr := a.Host.Addrs()[0], remote.(*Agent).Addr()
 	peer, err := peer.AddrInfoFromP2pAddr(remoteAddr)
 	if err != nil {
@@ -144,7 +143,7 @@ func (a *Agent) Connect(remote network.ClusterAgent) error {
 	return nil
 }
 
-func (a *Agent) Disconnect(remote network.ClusterAgent) error {
+func (a *Agent) Disconnect(remote ClusterAgent) error {
 	remoteAddr := remote.(*Agent).Addr()
 	for _, conn := range a.Host.Network().Conns() {
 		if conn.RemoteMultiaddr().Equal(remoteAddr) {

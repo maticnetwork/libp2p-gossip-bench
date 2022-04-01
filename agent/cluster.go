@@ -1,9 +1,8 @@
-package network
+package agent
 
 import (
 	"context"
 	"fmt"
-	"log"
 	"math/rand"
 	"net"
 	"sync"
@@ -11,6 +10,8 @@ import (
 	"time"
 
 	lat "github.com/maticnetwork/libp2p-gossip-bench/latency"
+	"github.com/maticnetwork/libp2p-gossip-bench/network"
+	"go.uber.org/zap"
 )
 
 type ClusterAgent interface {
@@ -35,7 +36,7 @@ type Cluster struct {
 	lock sync.RWMutex
 
 	latencyFinder LatencyFinder
-	logger        *log.Logger
+	logger        *zap.Logger
 	agents        map[int]agentContainer // port to ClusterAgent
 	port          int
 	config        ClusterConfig
@@ -55,9 +56,9 @@ const defaultKbps = 20 * 1024
 const defaultMTU = 1500
 const routinesNumber = 5
 
-var _ LatencyConnFactory = &Cluster{}
+var _ network.LatencyConnFactory = &Cluster{}
 
-func NewCluster(logger *log.Logger, latencyFinder LatencyFinder, config ClusterConfig) *Cluster {
+func NewCluster(logger *zap.Logger, latencyFinder LatencyFinder, config ClusterConfig) *Cluster {
 	return &Cluster{
 		lock:          sync.RWMutex{},
 		agents:        make(map[int]agentContainer),
@@ -222,7 +223,7 @@ func (c *Cluster) PrintReceiversStats() {
 	}
 }
 
-func (c *Cluster) StartAgents(agentsNumber int, factory func(id int) (ClusterAgent, string)) (int64, time.Duration) {
+func (c *Cluster) StartAgents(agentsNumber int, agentCongif AgentConfig) (int64, time.Duration) {
 	routinesCount := routinesNumber
 	if routinesCount > agentsNumber {
 		routinesCount = agentsNumber
@@ -241,13 +242,13 @@ func (c *Cluster) StartAgents(agentsNumber int, factory func(id int) (ClusterAge
 
 		go func(offset, cntAgents int) {
 			for i := 0; i < cntAgents; i++ {
-				agent, city := factory(offset + i)
-				_, err := c.AddAgent(agent, city)
-				if err != nil {
-					fmt.Printf("Could not start peer %d\n", atomic.LoadInt64(&cntAgentsStarted))
-				} else {
-					atomic.AddInt64(&cntAgentsStarted, 1)
-				}
+
+				// _, err := c.AddAgent(agent, city)
+				// if err != nil {
+				// 	fmt.Printf("Could not start peer %d\n", atomic.LoadInt64(&cntAgentsStarted))
+				// } else {
+				// 	atomic.AddInt64(&cntAgentsStarted, 1)
+				// }
 			}
 
 			wg.Done()
