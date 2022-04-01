@@ -3,14 +3,13 @@ package main
 import (
 	"context"
 	"fmt"
-	"log"
 	"math/rand"
-	"os"
 	"time"
 
 	"github.com/maticnetwork/libp2p-gossip-bench/agent"
 	lat "github.com/maticnetwork/libp2p-gossip-bench/latency"
 	"github.com/maticnetwork/libp2p-gossip-bench/network"
+	"go.uber.org/zap"
 )
 
 const AgentsNumber = 400
@@ -19,14 +18,20 @@ const MaxPeers = 10
 const MsgSize = 4096
 const IpString = "127.0.0.1"
 
-var logger *log.Logger = log.New(os.Stdout, "Mesh: ", log.Flags())
-
 func main() {
 	rand.Seed(time.Now().Unix())
+	// logger configuration
+	cfg := zap.NewProductionConfig()
+	cfg.OutputPaths = []string{"/tmp/agents.log"}
+	logger, err := cfg.Build()
+	if err != nil {
+		panic(err)
+	}
+	defer logger.Sync() // flush buffer
 
 	connManager := network.NewConnManagerNetPipe()
 	latencyData := lat.ReadLatencyDataFromJson()
-	cluster := network.NewCluster(logger, latencyData.FindLatency, network.ClusterConfig{
+	cluster := agent.NewCluster(logger, latencyData, agent.ClusterConfig{
 		Ip:           IpString,
 		StartingPort: StartingPort,
 		MaxPeers:     MaxPeers,
@@ -36,18 +41,17 @@ func main() {
 
 	fmt.Println("Start adding agents: ", AgentsNumber)
 
-	agentsAdded, timeAdded := cluster.StartAgents(AgentsNumber, func(id int) (network.ClusterAgent, string) {
-		ac := agent.NewDefaultAgentConfig()
-		ac.Transport = transportManager.Transport()
-		ac.MsgReceivedFn = cluster.MsgReceived
-		return agent.NewAgent(logger, ac), latencyData.GetRandomCity()
-	})
+	// configure agents
+	acfg := agent.NewDefaultAgentConfig()
+	acfg.Transport = transportManager.Transport()
+	// start agents in cluster
+	agentsAdded, timeAdded := cluster.StartAgents(AgentsNumber, *acfg)
 	fmt.Printf("Added %d agents. Ellapsed: %v\n", agentsAdded, timeAdded)
-	cluster.ConnectAgents(network.LinearTopology{})
+	// create cluster topology
+	cluster.ConnectAgents(agent.LinearTopology{})
 
 	fmt.Println("Gossip started")
 	msgsPublishedCnt, msgsFailedCnt := cluster.GossipLoop(context.Background(), time.Millisecond*900, time.Second*30)
 	fmt.Printf("Published %d messages \n", msgsPublishedCnt)
 	fmt.Printf("Failed %d messages \n", msgsFailedCnt)
-	cluster.PrintReceiversStats()
 }
