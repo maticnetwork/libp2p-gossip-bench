@@ -9,7 +9,7 @@ import (
 const itemsPerRoutine = 10
 const maxRoutines = 100
 
-// This really should be in some util func
+// Executes provided function fn in multiple go routines exactly itemCount times
 func MultiRoutineRunner(itemsCount int, fn func(index int) error) (int, int, time.Duration) {
 	startTime, success, failed := time.Now(), int32(0), int32(0)
 	routinesCount := (itemsCount + itemsPerRoutine - 1) / itemsPerRoutine
