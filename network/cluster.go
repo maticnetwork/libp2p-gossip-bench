@@ -258,6 +258,10 @@ func (c *Cluster) StartAgents(agentsNumber int, factory func(id int) (ClusterAge
 	return cntAgentsStarted, time.Since(startTime)
 }
 
+func (c *Cluster) ConnectAgents(topology Topology) {
+	topology.MakeConnections(c.agents)
+}
+
 func generateMsg(size int) []byte {
 	buf := make([]byte, size)
 	rand.Read(buf)
