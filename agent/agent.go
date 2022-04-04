@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	_ "embed"
+	"encoding/binary"
 	"fmt"
 	"time"
 
@@ -129,6 +130,7 @@ func (a *Agent) Listen(ipString string, port int) error {
 			}
 			a.Logger.Info("message received",
 				zap.String("peer", host.ID().Pretty()),
+				zap.Uint32("data", binary.BigEndian.Uint32(raw.Data[:4])),
 				zap.String("from", raw.ReceivedFrom.Pretty()),
 			)
 		}
@@ -168,6 +170,7 @@ func (a *Agent) Disconnect(remote ClusterAgent) error {
 
 func (a *Agent) Gossip(data []byte) error {
 	a.Logger.Info("message sent",
+		zap.Uint32("data", binary.BigEndian.Uint32(data[:4])),
 		zap.String("peer", a.Host.ID().Pretty()),
 	)
 	return a.Topic.Publish(context.Background(), data)

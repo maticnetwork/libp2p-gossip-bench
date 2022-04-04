@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math/rand"
+	"path/filepath"
 	"time"
 
 	"github.com/maticnetwork/libp2p-gossip-bench/agent"
@@ -12,22 +13,27 @@ import (
 	"go.uber.org/zap"
 )
 
-const AgentsNumber = 400
-const StartingPort = 10000
-const MaxPeers = 10
-const MsgSize = 4096
-const IpString = "127.0.0.1"
+const (
+	AgentsNumber        = 400
+	StartingPort        = 10000
+	MaxPeers            = 10
+	MsgSize             = 4096
+	IpString            = "127.0.0.1"
+	outputFileDirectory = "/tmp"
+)
 
 func main() {
 	rand.Seed(time.Now().Unix())
+	// remove file if exists
 	// logger configuration
 	cfg := zap.NewProductionConfig()
-	cfg.OutputPaths = []string{"/tmp/agents.log"}
+	cfg.OutputPaths = []string{filepath.Join(outputFileDirectory, fmt.Sprintf("agents_%s.log", time.Now().Format(time.RFC3339)))}
 	logger, err := cfg.Build()
 	if err != nil {
 		panic(err)
 	}
-	defer logger.Sync() // flush buffer
+	// flush buffer
+	defer logger.Sync()
 
 	connManager := network.NewConnManagerNetPipe()
 	latencyData := lat.ReadLatencyDataFromJson()
