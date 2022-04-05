@@ -3,13 +3,15 @@ package main
 import (
 	"context"
 	"fmt"
+	"github.com/maticnetwork/libp2p-gossip-bench/agent"
+	lat "github.com/maticnetwork/libp2p-gossip-bench/latency"
+	"github.com/maticnetwork/libp2p-gossip-bench/network"
+	"github.com/maticnetwork/libp2p-gossip-bench/utils"
+	"go.uber.org/zap/zapcore"
 	"math/rand"
 	"path/filepath"
 	"time"
 
-	"github.com/maticnetwork/libp2p-gossip-bench/agent"
-	lat "github.com/maticnetwork/libp2p-gossip-bench/latency"
-	"github.com/maticnetwork/libp2p-gossip-bench/network"
 	"go.uber.org/zap"
 )
 
@@ -31,6 +33,12 @@ func main() {
 	// logger configuration
 	cfg := zap.NewProductionConfig()
 	cfg.OutputPaths = []string{filepath.Join(outputFileDirectory, fmt.Sprintf("agents_%s.log", time.Now().Format(time.RFC3339)))}
+	cfg.EncoderConfig = zapcore.EncoderConfig{
+		TimeKey:    "time",
+		MessageKey: "msg",
+	}
+	cfg.EncoderConfig.EncodeTime = SyslogTimeEncoder
+
 	logger, err := cfg.Build()
 	if err != nil {
 		panic(err)
@@ -63,4 +71,7 @@ func main() {
 	msgsPublishedCnt, msgsFailedCnt := cluster.MessageLoop(context.Background(), time.Millisecond*900, time.Second*30)
 	fmt.Printf("Published %d messages \n", msgsPublishedCnt)
 	fmt.Printf("Failed %d messages \n", msgsFailedCnt)
+}
+func SyslogTimeEncoder(t time.Time, enc zapcore.PrimitiveArrayEncoder) {
+	enc.AppendString(t.Format(time.RFC3339))
 }
