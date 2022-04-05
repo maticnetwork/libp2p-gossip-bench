@@ -6,8 +6,8 @@ import (
 )
 
 type RandomTopology struct {
-	MaxPeers  int  // maximum number of connected peers
-	Count     int  // count of connections in topology
+	MaxPeers  uint // maximum number of connected peers
+	Count     uint // count of connections in topology
 	Connected bool // if true there will always be linear connection beetwen nodes
 }
 
@@ -100,7 +100,7 @@ func (t RandomTopology) MakeConnections(agents map[int]agentContainer) {
 
 // Holds current number of connections for one peer, port id, agent and slice of all other possible connections (as port ids)
 type rndToplogyPeer struct {
-	connCount     int
+	connCount     uint
 	portID        int
 	agent         ClusterAgent
 	possibleConns []int
@@ -147,6 +147,6 @@ func (tp *rndToplogyPeer) PopRandomPortID() int {
 	return value
 }
 
-func (tp rndToplogyPeer) CanBeUsed(max int) bool {
+func (tp rndToplogyPeer) CanBeUsed(max uint) bool {
 	return len(tp.possibleConns) > 0 && tp.connCount < max
 }

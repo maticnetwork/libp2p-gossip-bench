@@ -24,9 +24,10 @@ type ClusterAgent interface {
 }
 
 type agentContainer struct {
-	agent ClusterAgent
-	city  string
-	port  int
+	agent       ClusterAgent
+	city        string
+	port        int
+	isValidator bool
 }
 
 type Cluster struct {
@@ -63,7 +64,7 @@ func NewCluster(logger *zap.Logger, latency *lat.LatencyData, config ClusterConf
 	}
 }
 
-func (c *Cluster) AddAgent(agent ClusterAgent, city string) (int, error) {
+func (c *Cluster) AddAgent(agent ClusterAgent, city string, isValidator bool) (int, error) {
 	// we do not want to execute whole agent.listen in lock, thats is why we have locks at two places
 	c.lock.Lock()
 	c.port++
@@ -79,7 +80,7 @@ func (c *Cluster) AddAgent(agent ClusterAgent, city string) (int, error) {
 	//... if agent is sucessfully started update map
 	c.lock.Lock()
 	defer c.lock.Unlock()
-	c.agents[listenPort] = agentContainer{agent: agent, city: city, port: listenPort}
+	c.agents[listenPort] = agentContainer{agent: agent, city: city, port: listenPort, isValidator: isValidator}
 	return listenPort, nil
 }
 
@@ -150,6 +151,10 @@ func (c *Cluster) GossipLoop(context context.Context, gossipTime time.Duration, 
 	msgsPublishedCnt, msgsFailedCnt := int64(0), int64(0)
 	ch := make(chan struct{})
 	for _, cont := range c.agents {
+		if !cont.isValidator {
+			continue
+		}
+
 		go func(a ClusterAgent) {
 			tm := time.NewTicker(gossipTime)
 			defer tm.Stop()

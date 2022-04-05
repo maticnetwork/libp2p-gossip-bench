@@ -16,6 +16,7 @@ import (
 
 const (
 	AgentsNumber            = 400
+	ValidatorsNumber        = 100
 	StartingPort            = 10000
 	MsgSize                 = 4096
 	IpString                = "127.0.0.1"
@@ -56,12 +57,13 @@ func main() {
 		// configure agents
 		agent := agent.NewAgent(logger, acfg)
 		city := latencyData.GetRandomCity()
-		_, err := cluster.AddAgent(agent, city)
+		_, err := cluster.AddAgent(agent, city, index < ValidatorsNumber)
 		return err
 	})
 	fmt.Printf("Added %d agents. Failed to add agents: %v, Elapsed: %v\n", agentsAdded, agentsFailed, timeAdded)
 	// cluster.ConnectAgents(network.LinearTopology{})
-	cluster.ConnectAgents(agent.RandomTopology{Count: RandomConnectionsCount, MaxPeers: MaxPeers, Connected: RandomTopologyConnected})
+	// cluster.ConnectAgents(agent.RandomTopology{Count: RandomConnectionsCount, MaxPeers: MaxPeers, Connected: RandomTopologyConnected})
+	cluster.ConnectAgents(agent.SuperClusterTopology{ValidatorPeering: 9, NonValidatorPeering: 2})
 
 	fmt.Println("Gossip started")
 	msgsPublishedCnt, msgsFailedCnt := cluster.GossipLoop(context.Background(), time.Millisecond*900, time.Second*30)
