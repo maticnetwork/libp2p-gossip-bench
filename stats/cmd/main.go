@@ -4,62 +4,81 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
-	"log"
 	"os"
 	"time"
 )
 
-func main() {
-	durationThreshold := 2 * time.Second
-	filePath := "/tmp/agents_2022-04-05T16:06:23+02:00.log" //"/tmp/agents1.log" //"/tmp/agents.log"
+var (
+	durations = []time.Duration{1 * time.Second, 2 * time.Second, 3 * time.Second, 4 * time.Second, 5 * time.Second}
+	filePath  = "/tmp/agents1.log"
+)
 
+func main() {
 	f, err := os.Open(filePath)
 	if err != nil {
-		log.Printf("error opening file: %v\n", err)
+		fmt.Printf("error opening file: %v\n", err)
 		return
 	}
-	defer f.Close()
+	defer func() {
+		err := f.Close()
+		if err != nil {
+			fmt.Printf("Could not close file. Error: %s", err)
+		}
+	}()
 
-	s := bufio.NewScanner(f)
 	result := make(map[int]stats)
+	s := bufio.NewScanner(f)
+	var logLine Log
 	for s.Scan() {
-		logLine := Log{}
 		err := json.Unmarshal(s.Bytes(), &logLine)
 		if err != nil {
-			log.Printf("error unmarshaling log: %s", err)
+			fmt.Printf("error unmarshaling log: %s", err)
 			return
 		}
+		addStatistics(logLine, result)
+	}
 
-		if logLine.Msg == "message sent" {
-			sentTime := logLine.Time
-			if r, ok := result[logLine.Data]; ok {
-				r.msgSentTime = sentTime
-			} else {
-				result[logLine.Data] = stats{msgSentTime: sentTime, data: logLine.Data}
+	printStats(result)
+}
+
+func addStatistics(logLine Log, result map[int]stats) {
+	// todo add better handling of different kind of messages
+	if logLine.Msg == "message sent" {
+		sentTime := logLine.Time
+		if r, ok := result[logLine.Data]; ok {
+			r.msgSentTime = sentTime
+		} else {
+			m := make(map[time.Duration]int)
+			result[logLine.Data] = stats{
+				msgSentTime:        sentTime,
+				data:               logLine.Data,
+				durationStatistics: m,
 			}
-		} else if logLine.Msg == "message received" {
-			receivedTime := logLine.Time
-			if r, ok := result[logLine.Data]; ok {
-				if receivedTime.Sub(r.msgSentTime) <= durationThreshold {
-					if receivedTime.After(r.lastMsgReceivedTime) {
-						r.lastMsgReceivedTime = receivedTime
-					}
-					r.receivedMsgCount++
-					result[logLine.Data] = r
-				}
-			} else {
-				result[logLine.Data] = stats{
-					receivedMsgCount:    1,
-					lastMsgReceivedTime: receivedTime,
+		}
+	} else if logLine.Msg == "message received" {
+		receivedTime := logLine.Time
+		if r, ok := result[logLine.Data]; ok {
+			total := r.totalCount
+			r.totalCount = total + 1
+			duration := receivedTime.Sub(r.msgSentTime)
+			if r.lastMsgReceivedTime.Before(receivedTime) {
+				r.lastMsgReceivedTime = receivedTime
+			}
+			result[logLine.Data] = r
+			for _, d := range durations {
+				if duration <= d {
+					incrementNodesCount(r.durationStatistics, d)
 				}
 			}
 		}
-
-		log.Printf("Log %+v\n", logLine)
 	}
-	for k, v := range result {
-		log.Printf("Data: %d, %s\n", k, v)
-		log.Printf("Percentage of nodes received message %v: %.2f\n", v.data, float64(v.receivedMsgCount)/8*100)
+}
+
+func incrementNodesCount(durationStatistics map[time.Duration]int, duration time.Duration) {
+	if k, ok := durationStatistics[duration]; ok {
+		durationStatistics[duration] = k + 1
+	} else {
+		durationStatistics[duration] = 1
 	}
 }
 
@@ -73,12 +92,22 @@ type Log struct {
 }
 
 type stats struct {
-	data                int
+	totalCount          int
+	data                int // todo this can be messageID
 	msgSentTime         time.Time
 	lastMsgReceivedTime time.Time
-	receivedMsgCount    int
+	durationStatistics  map[time.Duration]int
 }
 
 func (s stats) String() string {
-	return fmt.Sprintf("SentTime: %s, LastReceivedTime: %s, Diff: %dms, NodesReceived: %d", s.msgSentTime, s.lastMsgReceivedTime, s.lastMsgReceivedTime.Sub(s.msgSentTime).Milliseconds(), s.receivedMsgCount)
+	return fmt.Sprintf("Data: %d\nTotal:%d\nSentTime: %s\nLastReceivedTime: %s\nMaxDuration: %.2f seconds\n", s.data, s.totalCount, s.msgSentTime, s.lastMsgReceivedTime, s.lastMsgReceivedTime.Sub(s.msgSentTime).Seconds()) //, s.receivedMsgCount)
+}
+
+func printStats(result map[int]stats) {
+	for _, stats := range result {
+		fmt.Printf("Statistics:\n%v", stats)
+		for _, d := range durations {
+			fmt.Printf("Threshold: <= %vseconds, count: %d, percentage: %.2f%%\n", d.Seconds(), stats.durationStatistics[d], float64(stats.durationStatistics[d])/float64(stats.totalCount)*100)
+		}
+	}
 }
