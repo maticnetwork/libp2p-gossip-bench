@@ -26,6 +26,7 @@ type ClusterAgent interface {
 type agentContainer struct {
 	agent ClusterAgent
 	city  string
+	port  int
 }
 
 type Cluster struct {
@@ -40,7 +41,6 @@ type Cluster struct {
 
 type ClusterConfig struct {
 	StartingPort int
-	MaxPeers     int
 	Ip           string
 	MsgSize      int
 	Kbps         int
@@ -49,7 +49,6 @@ type ClusterConfig struct {
 
 const defaultKbps = 20 * 1024
 const defaultMTU = 1500
-const routinesNumber = 5
 
 var _ network.LatencyConnFactory = &Cluster{}
 
@@ -80,7 +79,7 @@ func (c *Cluster) AddAgent(agent ClusterAgent, city string) (int, error) {
 	//... if agent is sucessfully started update map
 	c.lock.Lock()
 	defer c.lock.Unlock()
-	c.agents[listenPort] = agentContainer{agent: agent, city: city}
+	c.agents[listenPort] = agentContainer{agent: agent, city: city, port: listenPort}
 	return listenPort, nil
 }
 
@@ -133,14 +132,6 @@ func (c *Cluster) Gossip(fromID int, size int) {
 	agent.Gossip(buf)
 }
 
-func (c *Cluster) Connect(fromID, toID int) error {
-	from, to := c.GetAgent(fromID), c.GetAgent(toID)
-	if from.NumPeers() == c.config.MaxPeers {
-		return fmt.Errorf("agent %d has already maximum peers connected", fromID)
-	}
-	return from.Connect(to)
-}
-
 func (c *Cluster) Stop(portID int) error {
 	return c.GetAgent(portID).Stop()
 }
@@ -187,43 +178,6 @@ func (c *Cluster) GossipLoop(context context.Context, gossipTime time.Duration, 
 
 	close(ch)
 	return msgsPublishedCnt, msgsFailedCnt
-}
-
-func (c *Cluster) StartAgents(agentsNumber int, agentConfig AgentConfig) (int64, time.Duration) {
-	routinesCount := routinesNumber
-	if routinesCount > agentsNumber {
-		routinesCount = agentsNumber
-	}
-	startTime := time.Now()
-	wg := sync.WaitGroup{}
-	wg.Add(routinesCount)
-
-	cntAgentsStarted := int64(0)
-	cntPerRoutine := (agentsNumber + routinesCount - 1) / routinesCount
-	for i := 0; i < routinesCount; i++ {
-		cnt, offset := cntPerRoutine, i*cntPerRoutine
-		if cnt+offset > agentsNumber {
-			cnt = agentsNumber - offset
-		}
-
-		go func(offset, cntAgents int) {
-			for i := 0; i < cntAgents; i++ {
-				agent := NewAgent(c.logger, &agentConfig)
-				city := c.latency.GetRandomCity()
-				_, err := c.AddAgent(agent, city)
-				if err != nil {
-					fmt.Printf("Could not start peer %d\n", atomic.LoadInt64(&cntAgentsStarted))
-				} else {
-					atomic.AddInt64(&cntAgentsStarted, 1)
-				}
-			}
-
-			wg.Done()
-		}(offset, cnt)
-	}
-
-	wg.Wait()
-	return cntAgentsStarted, time.Since(startTime)
 }
 
 func (c *Cluster) ConnectAgents(topology Topology) {

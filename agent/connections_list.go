@@ -1,4 +1,4 @@
-package network
+package agent
 
 import (
 	"time"
@@ -9,7 +9,7 @@ import (
 // Holds list of all connection pairs (source and destination ClusterAgent)
 type connectionsList []struct {
 	src  ClusterAgent
-	dest ClusterAgente
+	dest ClusterAgent
 }
 
 // Creates new connectionsList

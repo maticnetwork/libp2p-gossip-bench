@@ -10,16 +10,19 @@ import (
 	"github.com/maticnetwork/libp2p-gossip-bench/agent"
 	lat "github.com/maticnetwork/libp2p-gossip-bench/latency"
 	"github.com/maticnetwork/libp2p-gossip-bench/network"
+	"github.com/maticnetwork/libp2p-gossip-bench/utils"
 	"go.uber.org/zap"
 )
 
 const (
-	AgentsNumber        = 400
-	StartingPort        = 10000
-	MaxPeers            = 10
-	MsgSize             = 4096
-	IpString            = "127.0.0.1"
-	outputFileDirectory = "/tmp"
+	AgentsNumber            = 400
+	StartingPort            = 10000
+	MsgSize                 = 4096
+	IpString                = "127.0.0.1"
+	outputFileDirectory     = "/tmp"
+	RandomConnectionsCount  = 2000
+	RandomTopologyConnected = true
+	MaxPeers                = 30
 )
 
 func main() {
@@ -40,21 +43,25 @@ func main() {
 	cluster := agent.NewCluster(logger, latencyData, agent.ClusterConfig{
 		Ip:           IpString,
 		StartingPort: StartingPort,
-		MaxPeers:     MaxPeers,
 		MsgSize:      MsgSize,
 	})
 	transportManager := network.NewTransportManager(connManager, cluster)
 
 	fmt.Println("Start adding agents: ", AgentsNumber)
 
-	// configure agents
+	// start agents in cluster
 	acfg := agent.NewDefaultAgentConfig()
 	acfg.Transport = transportManager.Transport()
-	// start agents in cluster
-	agentsAdded, timeAdded := cluster.StartAgents(AgentsNumber, *acfg)
-	fmt.Printf("Added %d agents. Ellapsed: %v\n", agentsAdded, timeAdded)
-	// create cluster topology
-	cluster.ConnectAgents(agent.LinearTopology{})
+	agentsAdded, agentsFailed, timeAdded := utils.MultiRoutineRunner(AgentsNumber, func(index int) error {
+		// configure agents
+		agent := agent.NewAgent(logger, acfg)
+		city := latencyData.GetRandomCity()
+		_, err := cluster.AddAgent(agent, city)
+		return err
+	})
+	fmt.Printf("Added %d agents. Failed to add agents: %v, Elapsed: %v\n", agentsAdded, agentsFailed, timeAdded)
+	// cluster.ConnectAgents(network.LinearTopology{})
+	cluster.ConnectAgents(agent.RandomTopology{Count: RandomConnectionsCount, MaxPeers: MaxPeers, Connected: RandomTopologyConnected})
 
 	fmt.Println("Gossip started")
 	msgsPublishedCnt, msgsFailedCnt := cluster.GossipLoop(context.Background(), time.Millisecond*900, time.Second*30)
