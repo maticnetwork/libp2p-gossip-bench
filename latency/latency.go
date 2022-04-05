@@ -29,7 +29,7 @@ func (l *LatencyData) GetRandomCity() string {
 	return city
 }
 
-func (l *LatencyData) FindLatency(from, to string) time.Duration {
+func (l *LatencyData) Find(from, to string) time.Duration {
 	fromID := l.sources[from]
 	toID := l.sources[to]
 

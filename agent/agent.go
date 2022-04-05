@@ -3,8 +3,8 @@ package agent
 import (
 	"context"
 	_ "embed"
+	"encoding/binary"
 	"fmt"
-	"log"
 	"time"
 
 	"github.com/libp2p/go-libp2p"
@@ -13,24 +13,23 @@ import (
 	"github.com/libp2p/go-libp2p-core/peer"
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
 	configLibp2p "github.com/libp2p/go-libp2p/config"
-	"github.com/maticnetwork/libp2p-gossip-bench/network"
 	ma "github.com/multiformats/go-multiaddr"
+	"go.uber.org/zap"
 )
 
 var connectionHelper agentConnectionHelper = newAgentConnectionHelper()
 
 type Agent struct {
 	Host   host.Host
-	Logger *log.Logger
+	Logger *zap.Logger
 	Config *AgentConfig
 	Topic  *pubsub.Topic
 }
 
-var _ network.ClusterAgent = &Agent{}
+var _ ClusterAgent = &Agent{}
 
 type AgentConfig struct {
-	Transport     configLibp2p.TptC
-	MsgReceivedFn network.MsgReceived
+	Transport configLibp2p.TptC
 
 	// overlay parameters
 	GossipSubD   int // topic stable mesh target count
@@ -70,7 +69,7 @@ func NewDefaultAgentConfig() *AgentConfig {
 // topic for pubsub
 const topicName = "Topic"
 
-func NewAgent(logger *log.Logger, config *AgentConfig) *Agent {
+func NewAgent(logger *zap.Logger, config *AgentConfig) *Agent {
 	return &Agent{
 		Logger: logger,
 		Config: config,
@@ -119,14 +118,29 @@ func (a *Agent) Listen(ipString string, port int) error {
 	if err != nil {
 		return err
 	}
+	a.Logger.Info("agent successfully subscribed", zap.String("topic", topicName))
 
-	readLoop(sub, host.ID(), a.Config.MsgReceivedFn)
+	// read messages and print stats to logger
+	go func() {
+		for {
+			raw, err := sub.Next(context.Background())
+			if err != nil {
+				fmt.Printf("Peer %v error receiving message on topic: %v\n", host.ID(), err)
+				continue
+			}
+			a.Logger.Info("message received",
+				zap.String("peer", host.ID().Pretty()),
+				zap.Uint32("data", binary.BigEndian.Uint32(raw.Data[:4])),
+				zap.String("from", raw.ReceivedFrom.Pretty()),
+			)
+		}
+	}()
 
 	a.Host, a.Topic = host, topic
 	return nil
 }
 
-func (a *Agent) Connect(remote network.ClusterAgent) error {
+func (a *Agent) Connect(remote ClusterAgent) error {
 	localAddr, remoteAddr := a.Host.Addrs()[0], remote.(*Agent).Addr()
 	peer, err := peer.AddrInfoFromP2pAddr(remoteAddr)
 	if err != nil {
@@ -144,7 +158,7 @@ func (a *Agent) Connect(remote network.ClusterAgent) error {
 	return nil
 }
 
-func (a *Agent) Disconnect(remote network.ClusterAgent) error {
+func (a *Agent) Disconnect(remote ClusterAgent) error {
 	remoteAddr := remote.(*Agent).Addr()
 	for _, conn := range a.Host.Network().Conns() {
 		if conn.RemoteMultiaddr().Equal(remoteAddr) {
@@ -155,6 +169,10 @@ func (a *Agent) Disconnect(remote network.ClusterAgent) error {
 }
 
 func (a *Agent) Gossip(data []byte) error {
+	a.Logger.Info("message sent",
+		zap.Uint32("data", binary.BigEndian.Uint32(data[:4])),
+		zap.String("peer", a.Host.ID().Pretty()),
+	)
 	return a.Topic.Publish(context.Background(), data)
 }
 
@@ -192,18 +210,4 @@ func (a *Agent) getPubsubGossipParams() pubsub.GossipSubParams {
 	//	gParams.HistoryGossip = 5
 	//}
 	return gParams
-}
-
-func readLoop(sub *pubsub.Subscription, lid peer.ID, handler func(lid, rid string, data []byte)) {
-	go func() {
-		for {
-			raw, err := sub.Next(context.Background())
-			if err != nil {
-				fmt.Printf("Peer %v error receiving message on topic: %v\n", lid, err)
-				continue
-			}
-			// fmt.Printf("Peer %v received data from %v\n", a.Host.ID(), from)
-			handler(lid.Pretty(), raw.ReceivedFrom.Pretty(), raw.Data)
-		}
-	}()
 }
