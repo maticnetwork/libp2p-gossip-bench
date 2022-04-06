@@ -96,7 +96,7 @@ type stats struct {
 }
 
 func (s stats) String() string {
-	return fmt.Sprintf("Data: %s\nTotalNodes:%d\nSentTime: %s\nLastReceivedTime: %s\nAllNodesRecivedMsgIn: %.2f second(s)\n",
+	return fmt.Sprintf("MessageID: %s\nTotalNodes:%d\nSentTime: %s\nLastReceivedTime: %s\nAllNodesRecivedMsgIn: %.2f second(s)\n",
 		s.msgID, s.totalNodesCount, s.msgSentTime, s.lastMsgReceivedTime, s.lastMsgReceivedTime.Sub(s.msgSentTime).Seconds())
 }
 
