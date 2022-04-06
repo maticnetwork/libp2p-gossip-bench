@@ -19,16 +19,16 @@ import (
 
 var connectionHelper agentConnectionHelper = newAgentConnectionHelper()
 
-type Agent struct {
+type GossipAgent struct {
 	Host   host.Host
 	Logger *zap.Logger
-	Config *AgentConfig
+	Config *GossipConfig
 	Topic  *pubsub.Topic
 }
 
-var _ ClusterAgent = &Agent{}
+var _ ClusterAgent = &GossipAgent{}
 
-type AgentConfig struct {
+type GossipConfig struct {
 	Transport configLibp2p.TptC
 
 	// overlay parameters
@@ -51,8 +51,8 @@ type AgentConfig struct {
 	PubsubQueueSize int
 }
 
-func NewDefaultAgentConfig() *AgentConfig {
-	return &AgentConfig{
+func DefaultGossipConfig() *GossipConfig {
+	return &GossipConfig{
 		GossipSubD:                 8,
 		GossipSubDlo:               6,
 		GossipSubDhi:               12,
@@ -69,14 +69,14 @@ func NewDefaultAgentConfig() *AgentConfig {
 // topic for pubsub
 const topicName = "Topic"
 
-func NewAgent(logger *zap.Logger, config *AgentConfig) *Agent {
-	return &Agent{
+func NewAgent(logger *zap.Logger, config *GossipConfig) *GossipAgent {
+	return &GossipAgent{
 		Logger: logger,
 		Config: config,
 	}
 }
 
-func (a *Agent) Listen(ipString string, port int) error {
+func (a *GossipAgent) Listen(ipString string, port int) error {
 	listenAddr, err := ma.NewMultiaddr(fmt.Sprintf("/ip4/%s/tcp/%d", ipString, port))
 	if err != nil {
 		return err
@@ -140,8 +140,8 @@ func (a *Agent) Listen(ipString string, port int) error {
 	return nil
 }
 
-func (a *Agent) Connect(remote ClusterAgent) error {
-	localAddr, remoteAddr := a.Host.Addrs()[0], remote.(*Agent).Addr()
+func (a *GossipAgent) Connect(remote ClusterAgent) error {
+	localAddr, remoteAddr := a.Host.Addrs()[0], remote.(*GossipAgent).Addr()
 	peer, err := peer.AddrInfoFromP2pAddr(remoteAddr)
 	if err != nil {
 		return err
@@ -158,8 +158,8 @@ func (a *Agent) Connect(remote ClusterAgent) error {
 	return nil
 }
 
-func (a *Agent) Disconnect(remote ClusterAgent) error {
-	remoteAddr := remote.(*Agent).Addr()
+func (a *GossipAgent) Disconnect(remote ClusterAgent) error {
+	remoteAddr := remote.(*GossipAgent).Addr()
 	for _, conn := range a.Host.Network().Conns() {
 		if conn.RemoteMultiaddr().Equal(remoteAddr) {
 			return conn.Close()
@@ -168,7 +168,7 @@ func (a *Agent) Disconnect(remote ClusterAgent) error {
 	return fmt.Errorf("could not disconnect from %s to %s", a.Host.Addrs()[0], remote)
 }
 
-func (a *Agent) Gossip(data []byte) error {
+func (a *GossipAgent) Gossip(data []byte) error {
 	a.Logger.Info("message sent",
 		zap.Uint32("data", binary.BigEndian.Uint32(data[:4])),
 		zap.String("peer", a.Host.ID().Pretty()),
@@ -176,15 +176,15 @@ func (a *Agent) Gossip(data []byte) error {
 	return a.Topic.Publish(context.Background(), data)
 }
 
-func (a *Agent) Stop() error {
+func (a *GossipAgent) Stop() error {
 	return a.Host.Close()
 }
 
-func (a *Agent) NumPeers() int {
+func (a *GossipAgent) NumPeers() int {
 	return a.Host.Peerstore().Peers().Len() - 1 // libp2p holds itself in list
 }
 
-func (a *Agent) Addr() ma.Multiaddr {
+func (a *GossipAgent) Addr() ma.Multiaddr {
 	port, _ := a.Host.Addrs()[0].ValueForProtocol(ma.P_TCP)
 	ip, _ := a.Host.Addrs()[0].ValueForProtocol(ma.P_IP4)
 	id := fmt.Sprintf("/ip4/%s/tcp/%s/p2p/%s", ip, port, a.Host.ID())
@@ -193,7 +193,7 @@ func (a *Agent) Addr() ma.Multiaddr {
 }
 
 // creates a custom gossipsub parameter set.
-func (a *Agent) getPubsubGossipParams() pubsub.GossipSubParams {
+func (a *GossipAgent) getPubsubGossipParams() pubsub.GossipSubParams {
 	gParams := pubsub.DefaultGossipSubParams()
 	gParams.Dlo = a.Config.GossipSubDlo
 	gParams.D = a.Config.GossipSubD
