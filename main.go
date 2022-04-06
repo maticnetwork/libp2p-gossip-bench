@@ -6,7 +6,6 @@ import (
 	"github.com/maticnetwork/libp2p-gossip-bench/agent"
 	lat "github.com/maticnetwork/libp2p-gossip-bench/latency"
 	"github.com/maticnetwork/libp2p-gossip-bench/network"
-	"github.com/maticnetwork/libp2p-gossip-bench/utils"
 	"go.uber.org/zap/zapcore"
 	"math/rand"
 	"path/filepath"

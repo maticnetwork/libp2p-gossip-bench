@@ -9,9 +9,9 @@ import (
 )
 
 var (
-	maxDuration = 25
-	durations   []time.Duration
-	filePath    = "/tmp/agents_2022-04-06T08:49:00+02:00.log"
+	maxDurationInSeconds = 25
+	durations            []time.Duration
+	filePath             = "/tmp/agents_2022-04-06T10:51:46+02:00.log"
 )
 
 func main() {
@@ -26,7 +26,7 @@ func main() {
 			fmt.Printf("Could not close file. Error: %s", err)
 		}
 	}()
-	for i := 1; i <= maxDuration; i++ {
+	for i := 1; i <= maxDurationInSeconds; i++ {
 		durations = append(durations, time.Duration(i)*time.Second)
 	}
 
@@ -54,7 +54,7 @@ func addStatistics(logLine Log, result map[string]stats) {
 			m := make(map[time.Duration]int)
 			result[logLine.MsgID] = stats{
 				msgSentTime:        sentTime,
-				data:               logLine.Data,
+				msgID:              logLine.MsgID,
 				durationStatistics: m,
 			}
 		}
@@ -77,16 +77,7 @@ func addStatistics(logLine Log, result map[string]stats) {
 	}
 }
 
-func incrementNodesCount(durationStatistics map[time.Duration]int, duration time.Duration) {
-	if k, ok := durationStatistics[duration]; ok {
-		durationStatistics[duration] = k + 1
-	} else {
-		durationStatistics[duration] = 1
-	}
-}
-
 type Log struct {
-	Data      int       `json:"data"`
 	MsgID     string    `json:"msgID"`
 	Direction string    `json:"direction"`
 	Msg       string    `json:"msg"`
@@ -98,23 +89,34 @@ type Log struct {
 
 type stats struct {
 	totalNodesCount     int
-	data                int
+	msgID               string
 	msgSentTime         time.Time
 	lastMsgReceivedTime time.Time
 	durationStatistics  map[time.Duration]int
 }
 
 func (s stats) String() string {
-	return fmt.Sprintf("Data: %d\nTotalNodes:%d\nSentTime: %s\nLastReceivedTime: %s\nMaxDuration: %.2f seconds\n",
-		s.data, s.totalNodesCount, s.msgSentTime, s.lastMsgReceivedTime, s.lastMsgReceivedTime.Sub(s.msgSentTime).Seconds())
+	return fmt.Sprintf("Data: %s\nTotalNodes:%d\nSentTime: %s\nLastReceivedTime: %s\nAllNodesRecivedMsgIn: %.2f second(s)\n",
+		s.msgID, s.totalNodesCount, s.msgSentTime, s.lastMsgReceivedTime, s.lastMsgReceivedTime.Sub(s.msgSentTime).Seconds())
+}
+
+func incrementNodesCount(durationStatistics map[time.Duration]int, duration time.Duration) {
+	if k, ok := durationStatistics[duration]; ok {
+		durationStatistics[duration] = k + 1
+	} else {
+		durationStatistics[duration] = 1
+	}
 }
 
 func printStats(result map[string]stats) {
 	for _, stats := range result {
+		maxDuration := stats.lastMsgReceivedTime.Sub(stats.msgSentTime)
 		fmt.Printf("Statistics:\n%v", stats)
 		for _, d := range durations {
-			fmt.Printf("Threshold: <= %vseconds, count: %d, percentage: %.2f%%\n",
-				d.Seconds(), stats.durationStatistics[d], float64(stats.durationStatistics[d])/float64(stats.totalNodesCount)*100)
+			if d <= maxDuration {
+				fmt.Printf("Threshold: <= %vsecond(s), NodeCount: %d, Percentage: %.2f%%\n",
+					d.Seconds(), stats.durationStatistics[d], float64(stats.durationStatistics[d])/float64(stats.totalNodesCount)*100)
+			}
 		}
 	}
 }
