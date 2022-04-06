@@ -14,8 +14,17 @@ import (
 	"go.uber.org/zap"
 )
 
+type ClusterAgent interface {
+	Listen(ipString string, port int) error
+	Connect(ClusterAgent) error
+	Disconnect(ClusterAgent) error
+	SendMessage(size int) error
+	Stop() error
+	NumPeers() int
+}
+
 type agentContainer struct {
-	agent       Agent
+	agent       ClusterAgent
 	city        string
 	port        int
 	isValidator bool
@@ -56,7 +65,7 @@ func NewCluster(logger *zap.Logger, latency *lat.LatencyData, c ClusterConfig) *
 	}
 }
 
-func (c *Cluster) AddAgent(agent Agent, city string, isValidator bool) (int, error) {
+func (c *Cluster) AddAgent(agent ClusterAgent, city string, isValidator bool) (int, error) {
 	// we do not want to execute whole agent.listen in lock, thats is why we have locks at two places
 	c.lock.Lock()
 	c.port++
@@ -76,7 +85,7 @@ func (c *Cluster) AddAgent(agent Agent, city string, isValidator bool) (int, err
 	return listenPort, nil
 }
 
-func (c *Cluster) GetAgent(id int) Agent {
+func (c *Cluster) GetAgent(id int) ClusterAgent {
 	return c.GetAgentContainer(id).agent
 }
 
@@ -141,7 +150,7 @@ func (c *Cluster) MessageLoop(context context.Context, duration time.Duration, t
 			continue
 		}
 
-		go func(a Agent) {
+		go func(a ClusterAgent) {
 			tm := time.NewTicker(duration)
 			defer tm.Stop()
 		outer:

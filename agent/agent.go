@@ -24,15 +24,6 @@ var byteOrder = binary.BigEndian
 
 var connectionHelper agentConnectionHelper = newAgentConnectionHelper()
 
-type Agent interface {
-	Listen(ipString string, port int) error
-	Connect(Agent) error
-	Disconnect(Agent) error
-	SendMessage(size int) error
-	Stop() error
-	NumPeers() int
-}
-
 type GossipAgent struct {
 	Host   host.Host
 	Logger *zap.Logger
@@ -162,7 +153,7 @@ func (a *GossipAgent) Listen(ipString string, port int) error {
 	return nil
 }
 
-func (a *GossipAgent) Connect(remote Agent) error {
+func (a *GossipAgent) Connect(remote ClusterAgent) error {
 	localAddr, remoteAddr := a.Host.Addrs()[0], remote.(*GossipAgent).Addr()
 	peer, err := peer.AddrInfoFromP2pAddr(remoteAddr)
 	if err != nil {
@@ -180,7 +171,7 @@ func (a *GossipAgent) Connect(remote Agent) error {
 	return nil
 }
 
-func (a *GossipAgent) Disconnect(remote Agent) error {
+func (a *GossipAgent) Disconnect(remote ClusterAgent) error {
 	remoteAddr := remote.(*GossipAgent).Addr()
 	for _, conn := range a.Host.Network().Conns() {
 		if conn.RemoteMultiaddr().Equal(remoteAddr) {
