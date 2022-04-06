@@ -54,10 +54,10 @@ func main() {
 	acfg := agent.DefaultGossipConfig()
 	acfg.Transport = transportManager.Transport()
 	agentsAdded, agentsFailed, timeAdded := cluster.StartAgents(AgentsNumber, *acfg)
-	fmt.Printf("Added %d agents. Failed to add agents: %v, Elapsed: %v\n", agentsAdded, agentsFailed, timeAdded)
-	// cluster.ConnectAgents(network.LinearTopology{})
+	fmt.Printf("Agents added: %d. Failed agents: %v, Elapsed time: %v\n", agentsAdded, agentsFailed, timeAdded)
+	cluster.ConnectAgents(agent.LinearTopology{})
 	// cluster.ConnectAgents(agent.RandomTopology{Count: RandomConnectionsCount, MaxPeers: MaxPeers, Connected: RandomTopologyConnected})
-	cluster.ConnectAgents(agent.SuperClusterTopology{ValidatorPeering: 9, NonValidatorPeering: 2})
+	//cluster.ConnectAgents(agent.SuperClusterTopology{ValidatorPeering: 9, NonValidatorPeering: 2})
 
 	fmt.Println("Gossip started")
 	msgsPublishedCnt, msgsFailedCnt := cluster.MessageLoop(context.Background(), time.Millisecond*900, time.Second*30)
