@@ -26,8 +26,6 @@ type GossipAgent struct {
 	Topic  *pubsub.Topic
 }
 
-var _ ClusterAgent = &GossipAgent{}
-
 type GossipConfig struct {
 	Transport configLibp2p.TptC
 
@@ -140,7 +138,7 @@ func (a *GossipAgent) Listen(ipString string, port int) error {
 	return nil
 }
 
-func (a *GossipAgent) Connect(remote ClusterAgent) error {
+func (a *GossipAgent) Connect(remote Agent) error {
 	localAddr, remoteAddr := a.Host.Addrs()[0], remote.(*GossipAgent).Addr()
 	peer, err := peer.AddrInfoFromP2pAddr(remoteAddr)
 	if err != nil {
@@ -158,7 +156,7 @@ func (a *GossipAgent) Connect(remote ClusterAgent) error {
 	return nil
 }
 
-func (a *GossipAgent) Disconnect(remote ClusterAgent) error {
+func (a *GossipAgent) Disconnect(remote Agent) error {
 	remoteAddr := remote.(*GossipAgent).Addr()
 	for _, conn := range a.Host.Network().Conns() {
 		if conn.RemoteMultiaddr().Equal(remoteAddr) {
@@ -168,7 +166,7 @@ func (a *GossipAgent) Disconnect(remote ClusterAgent) error {
 	return fmt.Errorf("could not disconnect from %s to %s", a.Host.Addrs()[0], remote)
 }
 
-func (a *GossipAgent) Gossip(data []byte) error {
+func (a *GossipAgent) SendMessage(data []byte) error {
 	a.Logger.Info("message sent",
 		zap.Uint32("data", binary.BigEndian.Uint32(data[:4])),
 		zap.String("peer", a.Host.ID().Pretty()),

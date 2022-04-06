@@ -15,17 +15,8 @@ import (
 	"go.uber.org/zap"
 )
 
-type ClusterAgent interface {
-	Listen(ipString string, port int) error
-	Connect(ClusterAgent) error
-	Disconnect(ClusterAgent) error
-	Gossip(data []byte) error
-	Stop() error
-	NumPeers() int
-}
-
 type agentContainer struct {
-	agent       ClusterAgent
+	agent       Agent
 	city        string
 	port        int
 	isValidator bool
@@ -66,7 +57,7 @@ func NewCluster(logger *zap.Logger, latency *lat.LatencyData, c ClusterConfig) *
 	}
 }
 
-func (c *Cluster) AddAgent(agent ClusterAgent, city string, isValidator bool) (int, error) {
+func (c *Cluster) AddAgent(agent Agent, city string, isValidator bool) (int, error) {
 	// we do not want to execute whole agent.listen in lock, thats is why we have locks at two places
 	c.lock.Lock()
 	c.port++
@@ -86,7 +77,7 @@ func (c *Cluster) AddAgent(agent ClusterAgent, city string, isValidator bool) (i
 	return listenPort, nil
 }
 
-func (c *Cluster) GetAgent(id int) ClusterAgent {
+func (c *Cluster) GetAgent(id int) Agent {
 	return c.GetAgentContainer(id).agent
 }
 
@@ -132,7 +123,7 @@ func (c *Cluster) CreateConn(baseConn net.Conn, leftPortID, rightPortID int) (ne
 func (c *Cluster) Gossip(fromID int, size int) {
 	agent := c.GetAgent(fromID)
 	buf := generateMsg(c.config.MsgSize)
-	agent.Gossip(buf)
+	agent.SendMessage(buf)
 }
 
 func (c *Cluster) Stop(portID int) error {
@@ -157,14 +148,14 @@ func (c *Cluster) GossipLoop(context context.Context, gossipTime time.Duration, 
 			continue
 		}
 
-		go func(a ClusterAgent) {
+		go func(a Agent) {
 			tm := time.NewTicker(gossipTime)
 			defer tm.Stop()
 		outer:
 			for {
 				select {
 				case <-tm.C:
-					err := a.Gossip(generateMsg(c.config.MsgSize))
+					err := a.SendMessage(generateMsg(c.config.MsgSize))
 					if err == nil {
 						atomic.AddInt64(&msgsPublishedCnt, 1)
 					} else {
@@ -187,7 +178,7 @@ func (c *Cluster) GossipLoop(context context.Context, gossipTime time.Duration, 
 	return msgsPublishedCnt, msgsFailedCnt
 }
 
-func (c *Cluster) StartAgents(agentsNumber int, agentConfig AgentConfig) (int, int, time.Duration) {
+func (c *Cluster) StartAgents(agentsNumber int, agentConfig GossipConfig) (int, int, time.Duration) {
 	added, failed, time := utils.MultiRoutineRunner(agentsNumber, func(index int) error {
 		// configure agents
 		agent := NewAgent(c.logger, &agentConfig)
