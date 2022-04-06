@@ -3,7 +3,6 @@ package agent
 import (
 	"context"
 	"fmt"
-	"math/rand"
 	"net"
 	"sync"
 	"sync/atomic"
@@ -120,12 +119,6 @@ func (c *Cluster) CreateConn(baseConn net.Conn, leftPortID, rightPortID int) (ne
 	return nn.Conn(baseConn)
 }
 
-func (c *Cluster) Gossip(fromID int, size int) {
-	agent := c.GetAgent(fromID)
-	buf := generateMsg(c.config.MsgSize)
-	agent.SendMessage(buf)
-}
-
 func (c *Cluster) Stop(portID int) error {
 	return c.GetAgent(portID).Stop()
 }
@@ -140,7 +133,7 @@ func (c *Cluster) StopAll() {
 	}
 }
 
-func (c *Cluster) GossipLoop(context context.Context, gossipTime time.Duration, timeout time.Duration) (int64, int64) {
+func (c *Cluster) MessageLoop(context context.Context, duration time.Duration, timeout time.Duration) (int64, int64) {
 	msgsPublishedCnt, msgsFailedCnt := int64(0), int64(0)
 	ch := make(chan struct{})
 	for _, cont := range c.agents {
@@ -149,13 +142,13 @@ func (c *Cluster) GossipLoop(context context.Context, gossipTime time.Duration, 
 		}
 
 		go func(a Agent) {
-			tm := time.NewTicker(gossipTime)
+			tm := time.NewTicker(duration)
 			defer tm.Stop()
 		outer:
 			for {
 				select {
 				case <-tm.C:
-					err := a.SendMessage(generateMsg(c.config.MsgSize))
+					err := a.SendMessage(c.config.MsgSize)
 					if err == nil {
 						atomic.AddInt64(&msgsPublishedCnt, 1)
 					} else {
@@ -192,12 +185,6 @@ func (c *Cluster) StartAgents(agentsNumber int, agentConfig GossipConfig) (int, 
 
 func (c *Cluster) ConnectAgents(topology Topology) {
 	topology.MakeConnections(c.agents)
-}
-
-func generateMsg(size int) []byte {
-	buf := make([]byte, size)
-	rand.Read(buf)
-	return buf
 }
 
 func getValue(value, def int) int {

@@ -8,6 +8,8 @@ require (
 	github.com/libp2p/go-libp2p-pubsub v0.6.0
 	github.com/libp2p/go-libp2p-transport-upgrader v0.5.0
 	github.com/multiformats/go-multiaddr v0.4.0
+	go.uber.org/zap v1.21.0
+	github.com/google/uuid v1.3.0
 )
 
 require (
@@ -99,7 +101,6 @@ require (
 	github.com/whyrusleeping/timecache v0.0.0-20160911033111-cfcb2f1abfee // indirect
 	go.uber.org/atomic v1.9.0 // indirect
 	go.uber.org/multierr v1.8.0 // indirect
-	go.uber.org/zap v1.21.0 // indirect
 	golang.org/x/crypto v0.0.0-20210813211128-0a44fdfbc16e // indirect
 	golang.org/x/mod v0.4.2 // indirect
 	golang.org/x/net v0.0.0-20210813160813-60bc85c4be6d // indirect
