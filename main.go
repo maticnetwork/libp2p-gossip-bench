@@ -37,6 +37,7 @@ func main() {
 		TimeKey:    "time",
 		MessageKey: "msg",
 	}
+	cfg.Sampling = nil
 	cfg.EncoderConfig.EncodeTime = SyslogTimeEncoder
 
 	logger, err := cfg.Build()

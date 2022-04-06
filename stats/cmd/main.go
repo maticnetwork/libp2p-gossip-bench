@@ -9,8 +9,9 @@ import (
 )
 
 var (
-	durations = []time.Duration{1 * time.Second, 2 * time.Second, 3 * time.Second, 4 * time.Second, 5 * time.Second}
-	filePath  = "/tmp/agents1.log"
+	maxDuration = 25
+	durations   []time.Duration
+	filePath    = "/tmp/agents_2022-04-06T08:49:00+02:00.log"
 )
 
 func main() {
@@ -25,14 +26,17 @@ func main() {
 			fmt.Printf("Could not close file. Error: %s", err)
 		}
 	}()
+	for i := 1; i <= maxDuration; i++ {
+		durations = append(durations, time.Duration(i)*time.Second)
+	}
 
-	result := make(map[int]stats)
+	result := make(map[string]stats)
 	s := bufio.NewScanner(f)
 	var logLine Log
 	for s.Scan() {
 		err := json.Unmarshal(s.Bytes(), &logLine)
 		if err != nil {
-			fmt.Printf("error unmarshaling log: %s", err)
+			fmt.Printf("error unmarshaling log: %s\n", err)
 			return
 		}
 		addStatistics(logLine, result)
@@ -41,30 +45,29 @@ func main() {
 	printStats(result)
 }
 
-func addStatistics(logLine Log, result map[int]stats) {
-	// todo add better handling of different kind of messages
-	if logLine.Msg == "message sent" {
+func addStatistics(logLine Log, result map[string]stats) {
+	if logLine.Direction == "sent" {
 		sentTime := logLine.Time
-		if r, ok := result[logLine.Data]; ok {
+		if r, ok := result[logLine.MsgID]; ok {
 			r.msgSentTime = sentTime
 		} else {
 			m := make(map[time.Duration]int)
-			result[logLine.Data] = stats{
+			result[logLine.MsgID] = stats{
 				msgSentTime:        sentTime,
 				data:               logLine.Data,
 				durationStatistics: m,
 			}
 		}
-	} else if logLine.Msg == "message received" {
+	} else if logLine.Direction == "received" {
 		receivedTime := logLine.Time
-		if r, ok := result[logLine.Data]; ok {
-			total := r.totalCount
-			r.totalCount = total + 1
+		if r, ok := result[logLine.MsgID]; ok {
+			total := r.totalNodesCount
+			r.totalNodesCount = total + 1
 			duration := receivedTime.Sub(r.msgSentTime)
 			if r.lastMsgReceivedTime.Before(receivedTime) {
 				r.lastMsgReceivedTime = receivedTime
 			}
-			result[logLine.Data] = r
+			result[logLine.MsgID] = r
 			for _, d := range durations {
 				if duration <= d {
 					incrementNodesCount(r.durationStatistics, d)
@@ -83,31 +86,35 @@ func incrementNodesCount(durationStatistics map[time.Duration]int, duration time
 }
 
 type Log struct {
-	Data  int       `json:"data"`
-	Msg   string    `json:"msg"`
-	From  string    `json:"from"`
-	Peer  string    `json:"peer"`
-	Topic string    `json:"topic"`
-	Time  time.Time `json:"time"`
+	Data      int       `json:"data"`
+	MsgID     string    `json:"msgID"`
+	Direction string    `json:"direction"`
+	Msg       string    `json:"msg"`
+	From      string    `json:"from"`
+	Peer      string    `json:"peer"`
+	Topic     string    `json:"topic"`
+	Time      time.Time `json:"time"`
 }
 
 type stats struct {
-	totalCount          int
-	data                int // todo this can be messageID
+	totalNodesCount     int
+	data                int
 	msgSentTime         time.Time
 	lastMsgReceivedTime time.Time
 	durationStatistics  map[time.Duration]int
 }
 
 func (s stats) String() string {
-	return fmt.Sprintf("Data: %d\nTotal:%d\nSentTime: %s\nLastReceivedTime: %s\nMaxDuration: %.2f seconds\n", s.data, s.totalCount, s.msgSentTime, s.lastMsgReceivedTime, s.lastMsgReceivedTime.Sub(s.msgSentTime).Seconds()) //, s.receivedMsgCount)
+	return fmt.Sprintf("Data: %d\nTotalNodes:%d\nSentTime: %s\nLastReceivedTime: %s\nMaxDuration: %.2f seconds\n",
+		s.data, s.totalNodesCount, s.msgSentTime, s.lastMsgReceivedTime, s.lastMsgReceivedTime.Sub(s.msgSentTime).Seconds())
 }
 
-func printStats(result map[int]stats) {
+func printStats(result map[string]stats) {
 	for _, stats := range result {
 		fmt.Printf("Statistics:\n%v", stats)
 		for _, d := range durations {
-			fmt.Printf("Threshold: <= %vseconds, count: %d, percentage: %.2f%%\n", d.Seconds(), stats.durationStatistics[d], float64(stats.durationStatistics[d])/float64(stats.totalCount)*100)
+			fmt.Printf("Threshold: <= %vseconds, count: %d, percentage: %.2f%%\n",
+				d.Seconds(), stats.durationStatistics[d], float64(stats.durationStatistics[d])/float64(stats.totalNodesCount)*100)
 		}
 	}
 }
