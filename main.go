@@ -51,7 +51,7 @@ func main() {
 	fmt.Println("Start adding agents: ", AgentsNumber)
 
 	// start agents in cluster
-	acfg := agent.NewDefaultAgentConfig()
+	acfg := agent.DefaultGossipConfig()
 	acfg.Transport = transportManager.Transport()
 	agentsAdded, agentsFailed, timeAdded := utils.MultiRoutineRunner(AgentsNumber, func(index int) error {
 		// configure agents
