@@ -102,11 +102,11 @@ func (t RandomTopology) MakeConnections(agents map[int]agentContainer) {
 type rndToplogyPeer struct {
 	connCount     uint
 	portID        int
-	agent         Agent
+	agent         ClusterAgent
 	possibleConns []int
 }
 
-func newRndTopologyPeer(portID int, agent Agent, agents map[int]agentContainer) *rndToplogyPeer {
+func newRndTopologyPeer(portID int, agent ClusterAgent, agents map[int]agentContainer) *rndToplogyPeer {
 	possible := make([]int, 0, len(agents)-1)
 	for otherPortID := range agents {
 		if otherPortID != portID {
