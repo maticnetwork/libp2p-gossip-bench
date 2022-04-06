@@ -8,8 +8,8 @@ import (
 
 // Holds list of all connection pairs (source and destination ClusterAgent)
 type connectionsList []struct {
-	src  Agent
-	dest Agent
+	src  ClusterAgent
+	dest ClusterAgent
 }
 
 // Creates new connectionsList
@@ -18,10 +18,10 @@ func NewConnectionsList() connectionsList {
 }
 
 // Add new connection pair to the list
-func (cl *connectionsList) Add(src, dest Agent) {
+func (cl *connectionsList) Add(src, dest ClusterAgent) {
 	*cl = append(*cl, struct {
-		src  Agent
-		dest Agent
+		src  ClusterAgent
+		dest ClusterAgent
 	}{src: src, dest: dest})
 }
 
