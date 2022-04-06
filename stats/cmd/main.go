@@ -11,7 +11,7 @@ import (
 var (
 	maxDurationInSeconds = 25
 	durations            []time.Duration
-	filePath             = "/tmp/agents_2022-04-06T10:51:46+02:00.log"
+	filePath             = ""
 )
 
 func main() {
