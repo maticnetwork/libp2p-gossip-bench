@@ -11,6 +11,7 @@ import (
 
 	lat "github.com/maticnetwork/libp2p-gossip-bench/latency"
 	"github.com/maticnetwork/libp2p-gossip-bench/network"
+	"github.com/maticnetwork/libp2p-gossip-bench/utils"
 	"go.uber.org/zap"
 )
 
@@ -41,11 +42,12 @@ type Cluster struct {
 }
 
 type ClusterConfig struct {
-	StartingPort int
-	Ip           string
-	MsgSize      int
-	Kbps         int
-	MTU          int
+	ValidatorCount int // number of validator agents in a cluster
+	StartingPort   int
+	Ip             string
+	MsgSize        int
+	Kbps           int
+	MTU            int
 }
 
 const defaultKbps = 20 * 1024
@@ -53,14 +55,14 @@ const defaultMTU = 1500
 
 var _ network.LatencyConnFactory = &Cluster{}
 
-func NewCluster(logger *zap.Logger, latency *lat.LatencyData, config ClusterConfig) *Cluster {
+func NewCluster(logger *zap.Logger, latency *lat.LatencyData, c ClusterConfig) *Cluster {
 	return &Cluster{
 		lock:    sync.RWMutex{},
 		agents:  make(map[int]agentContainer),
 		latency: latency,
 		logger:  logger,
-		config:  config,
-		port:    config.StartingPort,
+		config:  c,
+		port:    c.StartingPort,
 	}
 }
 
@@ -183,6 +185,18 @@ func (c *Cluster) GossipLoop(context context.Context, gossipTime time.Duration, 
 
 	close(ch)
 	return msgsPublishedCnt, msgsFailedCnt
+}
+
+func (c *Cluster) StartAgents(agentsNumber int, agentConfig AgentConfig) (int, int, time.Duration) {
+	added, failed, time := utils.MultiRoutineRunner(agentsNumber, func(index int) error {
+		// configure agents
+		agent := NewAgent(c.logger, &agentConfig)
+		city := c.latency.GetRandomCity()
+		_, err := c.AddAgent(agent, city, index < c.config.ValidatorCount)
+		return err
+	})
+
+	return added, failed, time
 }
 
 func (c *Cluster) ConnectAgents(topology Topology) {
