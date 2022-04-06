@@ -51,7 +51,7 @@ func main() {
 	fmt.Println("Start adding agents: ", AgentsNumber)
 
 	// start agents in cluster
-	acfg := agent.NewDefaultAgentConfig()
+	acfg := agent.DefaultGossipConfig()
 	acfg.Transport = transportManager.Transport()
 	agentsAdded, agentsFailed, timeAdded := cluster.StartAgents(AgentsNumber, *acfg)
 	fmt.Printf("Added %d agents. Failed to add agents: %v, Elapsed: %v\n", agentsAdded, agentsFailed, timeAdded)
