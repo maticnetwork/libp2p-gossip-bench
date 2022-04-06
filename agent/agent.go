@@ -1,12 +1,15 @@
 package agent
 
 import (
+	"bytes"
 	"context"
 	_ "embed"
 	"encoding/binary"
 	"fmt"
+	"math/rand"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/libp2p/go-libp2p"
 	"github.com/libp2p/go-libp2p-core/host"
 	libp2pnetwork "github.com/libp2p/go-libp2p-core/network"
@@ -16,6 +19,8 @@ import (
 	ma "github.com/multiformats/go-multiaddr"
 	"go.uber.org/zap"
 )
+
+var byteOrder = binary.BigEndian
 
 var connectionHelper agentConnectionHelper = newAgentConnectionHelper()
 
@@ -126,9 +131,19 @@ func (a *GossipAgent) Listen(ipString string, port int) error {
 				fmt.Printf("Peer %v error receiving message on topic: %v\n", host.ID(), err)
 				continue
 			}
+
+			// read message ID from received bytes
+			var msgID uuid.UUID
+			buf := bytes.NewBuffer(raw.Data)
+			if err := binary.Read(buf, byteOrder, &msgID); err != nil {
+				fmt.Printf("Peer %v error reading message ID: %v\n", host.ID(), err)
+				continue
+			}
+
 			a.Logger.Info("message received",
 				zap.String("peer", host.ID().Pretty()),
-				zap.Uint32("data", binary.BigEndian.Uint32(raw.Data[:4])),
+				zap.String("direction", "received"),
+				zap.String("msgID", msgID.String()),
 				zap.String("from", raw.ReceivedFrom.Pretty()),
 			)
 		}
@@ -166,12 +181,21 @@ func (a *GossipAgent) Disconnect(remote Agent) error {
 	return fmt.Errorf("could not disconnect from %s to %s", a.Host.Addrs()[0], remote)
 }
 
-func (a *GossipAgent) SendMessage(data []byte) error {
+func (a *GossipAgent) SendMessage(size int) error {
+	msgID := uuid.New()
+	msg, err := createMessage(msgID, size)
+	if err != nil {
+		return err
+	}
+
+	// log that message was sent so we can aggregate stats later
 	a.Logger.Info("message sent",
-		zap.Uint32("data", binary.BigEndian.Uint32(data[:4])),
 		zap.String("peer", a.Host.ID().Pretty()),
+		zap.String("direction", "sent"),
+		zap.String("msgID", msgID.String()),
 	)
-	return a.Topic.Publish(context.Background(), data)
+
+	return a.Topic.Publish(context.Background(), msg)
 }
 
 func (a *GossipAgent) Stop() error {
@@ -208,4 +232,30 @@ func (a *GossipAgent) getPubsubGossipParams() pubsub.GossipSubParams {
 	//	gParams.HistoryGossip = 5
 	//}
 	return gParams
+}
+
+// createMessage function fills the necessarry message size with
+// unique ID and the rest with random bytes
+func createMessage(id uuid.UUID, size int) ([]byte, error) {
+	buf := new(bytes.Buffer)
+
+	// write the ID in first
+	if err := binary.Write(buf, byteOrder, id); err != nil {
+		return nil, err
+	}
+
+	// to achieve configured message size,
+	// fill the rest of the buffer with rand bytes
+	if size < buf.Len() {
+		return nil, fmt.Errorf("message size can not be less than %d", buf.Len())
+	}
+	filler := make([]byte, size-buf.Len())
+	rand.Read(filler)
+
+	// write filler bytes into message after message ID
+	if err := binary.Write(buf, byteOrder, filler); err != nil {
+		return nil, err
+	}
+
+	return buf.Bytes(), nil
 }
