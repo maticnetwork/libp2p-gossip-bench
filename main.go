@@ -10,7 +10,6 @@ import (
 	"github.com/maticnetwork/libp2p-gossip-bench/agent"
 	lat "github.com/maticnetwork/libp2p-gossip-bench/latency"
 	"github.com/maticnetwork/libp2p-gossip-bench/network"
-	"github.com/maticnetwork/libp2p-gossip-bench/utils"
 	"go.uber.org/zap"
 )
 
@@ -42,9 +41,10 @@ func main() {
 	connManager := network.NewConnManagerNetPipe()
 	latencyData := lat.ReadLatencyDataFromJson()
 	cluster := agent.NewCluster(logger, latencyData, agent.ClusterConfig{
-		Ip:           IpString,
-		StartingPort: StartingPort,
-		MsgSize:      MsgSize,
+		Ip:             IpString,
+		StartingPort:   StartingPort,
+		MsgSize:        MsgSize,
+		ValidatorCount: ValidatorsNumber,
 	})
 	transportManager := network.NewTransportManager(connManager, cluster)
 
@@ -53,20 +53,14 @@ func main() {
 	// start agents in cluster
 	acfg := agent.DefaultGossipConfig()
 	acfg.Transport = transportManager.Transport()
-	agentsAdded, agentsFailed, timeAdded := utils.MultiRoutineRunner(AgentsNumber, func(index int) error {
-		// configure agents
-		agent := agent.NewAgent(logger, acfg)
-		city := latencyData.GetRandomCity()
-		_, err := cluster.AddAgent(agent, city, index < ValidatorsNumber)
-		return err
-	})
-	fmt.Printf("Added %d agents. Failed to add agents: %v, Elapsed: %v\n", agentsAdded, agentsFailed, timeAdded)
-	// cluster.ConnectAgents(network.LinearTopology{})
+	agentsAdded, agentsFailed, timeAdded := cluster.StartAgents(AgentsNumber, *acfg)
+	fmt.Printf("Agents added: %d. Failed agents: %v, Elapsed time: %v\n", agentsAdded, agentsFailed, timeAdded)
+	cluster.ConnectAgents(agent.LinearTopology{})
 	// cluster.ConnectAgents(agent.RandomTopology{Count: RandomConnectionsCount, MaxPeers: MaxPeers, Connected: RandomTopologyConnected})
-	cluster.ConnectAgents(agent.SuperClusterTopology{ValidatorPeering: 9, NonValidatorPeering: 2})
+	//cluster.ConnectAgents(agent.SuperClusterTopology{ValidatorPeering: 9, NonValidatorPeering: 2})
 
 	fmt.Println("Gossip started")
-	msgsPublishedCnt, msgsFailedCnt := cluster.GossipLoop(context.Background(), time.Millisecond*900, time.Second*30)
+	msgsPublishedCnt, msgsFailedCnt := cluster.MessageLoop(context.Background(), time.Millisecond*900, time.Second*30)
 	fmt.Printf("Published %d messages \n", msgsPublishedCnt)
 	fmt.Printf("Failed %d messages \n", msgsFailedCnt)
 }
