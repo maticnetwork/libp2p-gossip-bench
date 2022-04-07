@@ -29,8 +29,8 @@ func (t SuperClusterTopology) MakeConnections(agents map[int]agentContainer) {
 	possible := make([]agentContainer, len(validators))
 	copy(possible, validators)
 	possibleCnt := len(validators)
-	for i := uint(0); i < t.NonValidatorPeering; i++ {
-		for _, ac := range nonValidators {
+	for _, ac := range nonValidators {
+		for i := uint(0); i < t.NonValidatorPeering; i++ {
 			index := rand.Intn(possibleCnt)
 			connections.Add(ac.agent, possible[index].agent)
 			if possibleCnt == 1 {
