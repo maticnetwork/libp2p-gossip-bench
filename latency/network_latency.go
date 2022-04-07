@@ -78,13 +78,7 @@ var (
 // If n's Latency is lower than the measured latency in c, an error is
 // returned.
 func (n *Network) Conn(c net.Conn) (net.Conn, error) {
-	start := now()
 	nc := &netConn{Conn: c, network: n, readBuf: new(bytes.Buffer), delay: n.Latency}
-	// if err := nc.sync(); err != nil {
-	// 	return nil, err
-	// }
-	// sleep(start.Add(nc.delay).Sub(now()))
-	time.Sleep(time.Until(start.Add(nc.delay)))
 	return nc, nil
 }
 

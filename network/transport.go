@@ -4,7 +4,7 @@ import (
 	"context"
 	"net"
 	"strconv"
-	"sync/atomic"
+	"sync"
 
 	"github.com/libp2p/go-libp2p-core/network"
 	"github.com/libp2p/go-libp2p-core/peer"
@@ -26,8 +26,9 @@ type Transport struct {
 
 	peerId peer.ID
 
+	closedCh chan struct{}
 	acceptCh chan acceptChData
-	isClosed int32
+	once     sync.Once // Protects closing closedCh
 }
 
 func (t *Transport) Dial(ctx context.Context, raddr ma.Multiaddr, p peer.ID) (transport.CapableConn, error) {
@@ -35,7 +36,7 @@ func (t *Transport) Dial(ctx context.Context, raddr ma.Multiaddr, p peer.ID) (tr
 		panic("laddr and raddr must be specified")
 	}
 
-	conn1, conn2 := t.manager.ConnManager.Get(t.laddr.String(), raddr.String())
+	conn1, conn2 := t.manager.BaseConnFactory()
 
 	// listener side
 	go func() {
@@ -44,7 +45,7 @@ func (t *Transport) Dial(ctx context.Context, raddr ma.Multiaddr, p peer.ID) (tr
 	}()
 
 	// dialer side
-	latencyConn, err := t.manager.LatencyConnFactory.CreateConn(conn1, getPort(t.laddr), getPort(raddr))
+	latencyConn, err := t.manager.LatencyConnFactory(conn1, getPort(t.laddr), getPort(raddr))
 	if err != nil {
 		return nil, err
 	}
@@ -70,12 +71,14 @@ func (t *Transport) Proxy() bool {
 }
 
 func (t *Transport) Accept() (transport.CapableConn, error) {
-	data, hasMore := <-t.acceptCh
-	if !hasMore {
+	var data acceptChData
+	select {
+	case data = <-t.acceptCh:
+	case <-t.closedCh:
 		return nil, net.ErrClosed
 	}
 
-	latencyConn, err := t.manager.LatencyConnFactory.CreateConn(data.conn, getPort(t.laddr), getPort(data.raddr))
+	latencyConn, err := t.manager.LatencyConnFactory(data.conn, getPort(t.laddr), getPort(data.raddr))
 	if err != nil {
 		return nil, err
 	}
@@ -83,9 +86,9 @@ func (t *Transport) Accept() (transport.CapableConn, error) {
 }
 
 func (t *Transport) Close() error {
-	if atomic.CompareAndSwapInt32(&t.isClosed, 0, 1) {
-		close(t.acceptCh)
-	}
+	t.once.Do(func() {
+		close(t.closedCh)
+	})
 	return nil
 }
 

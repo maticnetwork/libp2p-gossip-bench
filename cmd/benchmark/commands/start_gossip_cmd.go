@@ -4,6 +4,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"time"
@@ -47,18 +48,17 @@ type StartGossipCommand struct {
 // Help implements the cli.Command interface
 func (fc *StartGossipCommand) Help() string {
 	return `Command runs the libp2p framework based on provided configuration (node count, validator count, ).
-	
-	Usage: start -nodes={numberOfNodes} -validators={numberOfvalidators}  -topology={topologyType(linear,ranodm, super-cluster)} -rate={messagesRate} -size={messageSize}
-	
-	Options:
-	
-	-nodes 		- Count of nodes
-	-validators - Count of validators
-	-topology 	- Topology of the nodes (linear, random)
-	-rate 		- Message rate of a node in miliseconds
-	-duration   - Benchmanr duration in miliseconds
-	-size 		- Size of a transmited message
-	-degree 	- Peering degree:Count of directly connected peers`
+
+    Usage: start -nodes={numberOfNodes} -validators={numberOfvalidators}  -topology={topologyType(linear,ranodm, super-cluster)} -rate={messagesRate} -size={messageSize}
+
+    Options:	
+    -nodes      - Count of nodes
+    -validators - Count of validators
+    -topology   - Topology of the nodes (linear, random, super-cluster)
+    -rate       - Message rate of a node in miliseconds
+    -duration   - Benchmark duration in miliseconds
+    -size       - Size of a transmited message
+    -degree     - Peering degree:Count of directly connected peers`
 }
 
 // Synopsis implements the cli.Command interface
@@ -76,13 +76,13 @@ func (fc *StartGossipCommand) Run(args []string) int {
 	}
 
 	fc.UI.Info("Starting libp2p benchmark ...")
-	fc.UI.Info(fmt.Sprintf("Node count: %v\n", fc.nodeCount))
-	fc.UI.Info(fmt.Sprintf("Validator count: %v\n", fc.validatorCount))
-	fc.UI.Info(fmt.Sprintf("Chosen topology: %s\n", fc.topology))
-	fc.UI.Info(fmt.Sprintf("Message rate (miliseconds): %v\n", fc.messageRate))
-	fc.UI.Info(fmt.Sprintf("Benchmark duration (miliseconds): %v\n", fc.benchDuration))
-	fc.UI.Info(fmt.Sprintf("Message size (bytes): %v\n", fc.messageSize))
-	fc.UI.Info(fmt.Sprintf("Peering degree: %v\n", fc.peeringDegree))
+	fc.UI.Info(fmt.Sprintf("Node count: %v", fc.nodeCount))
+	fc.UI.Info(fmt.Sprintf("Validator count: %v", fc.validatorCount))
+	fc.UI.Info(fmt.Sprintf("Chosen topology: %s", fc.topology))
+	fc.UI.Info(fmt.Sprintf("Message rate (miliseconds): %v", fc.messageRate))
+	fc.UI.Info(fmt.Sprintf("Benchmark duration (miliseconds): %v", fc.benchDuration))
+	fc.UI.Info(fmt.Sprintf("Message size (bytes): %v", fc.messageSize))
+	fc.UI.Info(fmt.Sprintf("Peering degree: %v", fc.peeringDegree))
 
 	fc.UI.Info("Starting benchmark...")
 
@@ -102,7 +102,7 @@ func (fc *StartGossipCommand) Run(args []string) int {
 			NonValidatorPeering: 1, // magic numner for now
 		}
 	default:
-		fc.UI.Info(fmt.Sprintf("Unknown tpology %s submitted\n", fc.topology))
+		fc.UI.Info(fmt.Sprintf("Unknown topology %s submitted\n", fc.topology))
 		return 1
 	}
 
@@ -122,7 +122,7 @@ func (fc *StartGossipCommand) NewFlagSet() *flag.FlagSet {
 	flagSet.DurationVar(&fc.messageRate, "rate", time.Millisecond*900, "Message rate (in miliseconds) of a node")
 	flagSet.DurationVar(&fc.benchDuration, "duration", time.Millisecond*40000, "Duration of a benchmark in miliseconds")
 	flagSet.IntVar(&fc.messageSize, "size", 4096, "Size (in bytes) of a transmited message")
-	flagSet.IntVar(&fc.peeringDegree, "degree", 4, "Peering degree:Count of directly connected peers")
+	flagSet.IntVar(&fc.peeringDegree, "degree", 4, "Peering degree: count of directly connected peers")
 	flagSet.IntVar(&fc.startingPort, "port", 10000, "Port of the first agent")
 
 	return flagSet
@@ -147,7 +147,6 @@ func StartGossipBench(agentsNumber, validatorsNumber, startingPort, msgSize int,
 	// flush buffer
 	defer logger.Sync()
 
-	connManager := network.NewConnManagerNetPipe()
 	latencyData := lat.ReadLatencyDataFromJson()
 	cluster := agent.NewCluster(logger, latencyData, agent.ClusterConfig{
 		Ip:             IpString,
@@ -156,7 +155,7 @@ func StartGossipBench(agentsNumber, validatorsNumber, startingPort, msgSize int,
 		ValidatorCount: validatorsNumber,
 	})
 
-	transportManager := network.NewTransportManager(connManager, cluster)
+	transportManager := network.NewTransportManager(createBaseConn, cluster.CreateConn)
 
 	fmt.Println("Output file path: ", cfg.OutputPaths)
 	fmt.Println("Start adding agents: ", agentsNumber)
@@ -176,6 +175,10 @@ func StartGossipBench(agentsNumber, validatorsNumber, startingPort, msgSize int,
 
 func SyslogTimeEncoder(t time.Time, enc zapcore.PrimitiveArrayEncoder) {
 	enc.AppendString(t.Format(time.RFC3339))
+}
+
+func createBaseConn() (net.Conn, net.Conn) {
+	return net.Pipe()
 }
 
 func GetGossipCommands() map[string]cli.CommandFactory {

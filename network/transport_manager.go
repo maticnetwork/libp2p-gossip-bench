@@ -12,20 +12,20 @@ import (
 	"github.com/libp2p/go-libp2p/config"
 )
 
-type LatencyConnFactory interface {
-	CreateConn(baseConn net.Conn, leftNodeId, rightNodeId int) (net.Conn, error)
-}
+type LatencyConnFactory func(net.Conn, int, int) (net.Conn, error)
+
+type BaseConnFactory func() (net.Conn, net.Conn)
 
 type TransportManager struct {
 	lock               sync.RWMutex
 	transports         map[string]*Transport
-	ConnManager        ConnManager
+	BaseConnFactory    BaseConnFactory
 	LatencyConnFactory LatencyConnFactory
 }
 
-func NewTransportManager(connMngr ConnManager, latencyConnFactory LatencyConnFactory) *TransportManager {
+func NewTransportManager(baseConnFactory BaseConnFactory, latencyConnFactory LatencyConnFactory) *TransportManager {
 	return &TransportManager{
-		ConnManager:        connMngr,
+		BaseConnFactory:    baseConnFactory,
 		LatencyConnFactory: latencyConnFactory,
 		transports:         make(map[string]*Transport),
 		lock:               sync.RWMutex{},
@@ -52,6 +52,7 @@ func (m *TransportManager) Transport() config.TptC {
 			manager:  m,
 			peerId:   h.ID(),
 			acceptCh: make(chan acceptChData),
+			closedCh: make(chan struct{}),
 		}
 		m.transports[h.ID().Pretty()] = tr
 		return tr, nil
