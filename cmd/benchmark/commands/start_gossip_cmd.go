@@ -109,7 +109,7 @@ func (fc *StartGossipCommand) Run(args []string) int {
 		return 1
 	}
 
-	StartGossipBench(fc.nodeCount, fc.validatorCount, fc.startingPort, fc.messageSize, fc.messageRate, fc.benchDuration, fc.benchDowntime, topology)
+	StartGossipBench(fc.nodeCount, fc.validatorCount, fc.peeringDegree, fc.startingPort, fc.messageSize, fc.messageRate, fc.benchDuration, fc.benchDowntime, topology)
 
 	fc.UI.Info("Benchmark executed")
 
@@ -131,7 +131,7 @@ func (fc *StartGossipCommand) NewFlagSet() *flag.FlagSet {
 	return flagSet
 }
 
-func StartGossipBench(agentsNumber, validatorsNumber, startingPort, msgSize int, msgRate, benchDuration, benchDowntime time.Duration, toplogy agent.Topology) {
+func StartGossipBench(agentsNumber, validatorsNumber, peeringDegree, startingPort, msgSize int, msgRate, benchDuration, benchDowntime time.Duration, topology agent.Topology) {
 	// remove file if exists
 	// logger configuration
 	cfg := zap.NewProductionConfig()
@@ -150,6 +150,14 @@ func StartGossipBench(agentsNumber, validatorsNumber, startingPort, msgSize int,
 	// flush buffer
 	defer logger.Sync()
 
+	logger.Info("Starting gossip benchmark",
+		zap.Int("agentsCount", agentsNumber),
+		zap.Int("validatorsCount", validatorsNumber),
+		zap.String("topology", fmt.Sprintf("%T", topology)),
+		zap.Duration("benchDuration", benchDuration),
+		zap.Duration("msgRate", msgRate),
+		zap.Int("peeringDegree", peeringDegree),
+	)
 	latencyData := lat.ReadLatencyDataFromJson()
 	cluster := agent.NewCluster(logger, latencyData, agent.ClusterConfig{
 		Ip:             IpString,
@@ -168,7 +176,7 @@ func StartGossipBench(agentsNumber, validatorsNumber, startingPort, msgSize int,
 	acfg.Transport = transportManager.Transport()
 	agentsAdded, agentsFailed, timeAdded := cluster.StartAgents(agentsNumber, *acfg)
 	fmt.Printf("Agents added: %d. Failed agents: %v, Elapsed time: %v\n", agentsAdded, agentsFailed, timeAdded)
-	cluster.ConnectAgents(toplogy)
+	cluster.ConnectAgents(topology)
 
 	fmt.Println("Gossip started")
 
