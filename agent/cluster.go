@@ -130,22 +130,29 @@ func (c *Cluster) StopAll() {
 	}
 }
 
-func (c *Cluster) MessageLoop(context context.Context, duration time.Duration, timeout time.Duration) (int64, int64) {
+func (c *Cluster) MessageLoop(context context.Context, msgRate time.Duration, logDuration, timeout time.Duration) (int64, int64) {
 	msgsPublishedCnt, msgsFailedCnt := int64(0), int64(0)
 	ch := make(chan struct{})
+	start := time.Now()
+
 	for _, cont := range c.agents {
 		if !cont.isValidator {
 			continue
 		}
 
 		go func(a Agent) {
-			tm := time.NewTicker(duration)
+			tm := time.NewTicker(msgRate)
 			defer tm.Stop()
 		outer:
 			for {
 				select {
 				case <-tm.C:
-					err := a.SendMessage(c.config.MsgSize)
+					// log message, used for stats aggregation,
+					// should be logged only during specified benchmark log duration
+					msgTime := time.Now()
+					shouldAggregate := msgTime.Before(start.Add(logDuration))
+
+					err := a.SendMessage(c.config.MsgSize, shouldAggregate)
 					if err == nil {
 						atomic.AddInt64(&msgsPublishedCnt, 1)
 					} else {

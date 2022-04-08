@@ -28,7 +28,7 @@ type Agent interface {
 	Listen(ipString string, port int) error
 	Connect(Agent) error
 	Disconnect(Agent) error
-	SendMessage(size int) error
+	SendMessage(size int, isUseful bool) error
 	Stop() error
 	NumPeers() int
 }
@@ -190,7 +190,7 @@ func (a *GossipAgent) Disconnect(remote Agent) error {
 	return fmt.Errorf("could not disconnect from %s to %s", a.Host.Addrs()[0], remote)
 }
 
-func (a *GossipAgent) SendMessage(size int) error {
+func (a *GossipAgent) SendMessage(size int, isUseful bool) error {
 	msgID := uuid.New()
 	msg, err := createMessage(msgID, size)
 	if err != nil {
@@ -201,6 +201,7 @@ func (a *GossipAgent) SendMessage(size int) error {
 	a.Logger.Info("message sent",
 		zap.String("peer", a.Host.ID().Pretty()),
 		zap.String("direction", "sent"),
+		zap.Bool("aggregateStats", isUseful),
 		zap.String("msgID", msgID.String()),
 	)
 

@@ -40,6 +40,7 @@ type StartGossipCommand struct {
 	topology       string
 	messageRate    time.Duration
 	benchDuration  time.Duration
+	benchDowntime  time.Duration
 	messageSize    int
 	peeringDegree  int
 	startingPort   int
@@ -56,7 +57,8 @@ func (fc *StartGossipCommand) Help() string {
     -validators - Count of validators
     -topology   - Topology of the nodes (linear, random, super-cluster)
     -rate       - Message rate of a node in miliseconds
-    -duration   - Benchmark duration in miliseconds
+    -duration   - Guaranteed benchmark duration in miliseconds for which the results will be logged
+	-downtime	- Period of time in miliseconds at the end of benchmark for which loggs will be discarded 
     -size       - Size of a transmited message
     -degree     - Peering degree:Count of directly connected peers`
 }
@@ -81,6 +83,7 @@ func (fc *StartGossipCommand) Run(args []string) int {
 	fc.UI.Info(fmt.Sprintf("Chosen topology: %s", fc.topology))
 	fc.UI.Info(fmt.Sprintf("Message rate (miliseconds): %v", fc.messageRate))
 	fc.UI.Info(fmt.Sprintf("Benchmark duration (miliseconds): %v", fc.benchDuration))
+	fc.UI.Info(fmt.Sprintf("Benchmark downtime duration (miliseconds): %v", fc.benchDowntime))
 	fc.UI.Info(fmt.Sprintf("Message size (bytes): %v", fc.messageSize))
 	fc.UI.Info(fmt.Sprintf("Peering degree: %v", fc.peeringDegree))
 
@@ -106,7 +109,7 @@ func (fc *StartGossipCommand) Run(args []string) int {
 		return 1
 	}
 
-	StartGossipBench(fc.nodeCount, fc.validatorCount, fc.startingPort, fc.messageSize, fc.messageRate, fc.benchDuration, topology)
+	StartGossipBench(fc.nodeCount, fc.validatorCount, fc.startingPort, fc.messageSize, fc.messageRate, fc.benchDuration, fc.benchDowntime, topology)
 
 	fc.UI.Info("Benchmark executed")
 
@@ -128,7 +131,7 @@ func (fc *StartGossipCommand) NewFlagSet() *flag.FlagSet {
 	return flagSet
 }
 
-func StartGossipBench(agentsNumber, validatorsNumber, startingPort, msgSize int, msgRate, testTimeout time.Duration, toplogy agent.Topology) {
+func StartGossipBench(agentsNumber, validatorsNumber, startingPort, msgSize int, msgRate, benchDuration, benchDowntime time.Duration, toplogy agent.Topology) {
 	// remove file if exists
 	// logger configuration
 	cfg := zap.NewProductionConfig()
@@ -168,7 +171,10 @@ func StartGossipBench(agentsNumber, validatorsNumber, startingPort, msgSize int,
 	cluster.ConnectAgents(toplogy)
 
 	fmt.Println("Gossip started")
-	msgsPublishedCnt, msgsFailedCnt := cluster.MessageLoop(context.Background(), msgRate, testTimeout)
+
+	// timeout for the whole benchmark should encorporate defined downtime
+	benchTimeout := benchDuration + benchDowntime
+	msgsPublishedCnt, msgsFailedCnt := cluster.MessageLoop(context.Background(), msgRate, benchDuration, benchTimeout)
 	fmt.Printf("Published %d messages \n", msgsPublishedCnt)
 	fmt.Printf("Failed %d messages \n", msgsFailedCnt)
 }
