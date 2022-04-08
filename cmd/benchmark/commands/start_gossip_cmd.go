@@ -56,9 +56,9 @@ func (fc *StartGossipCommand) Help() string {
     -nodes      - Count of nodes
     -validators - Count of validators
     -topology   - Topology of the nodes (linear, random, super-cluster)
-    -rate       - Message rate of a node in milliseconds
-    -duration   - Guaranteed benchmark duration in seconds for which the results will be logged
-	-downtime	- Period of time in seconds at the end of benchmark for which logs will be discarded 
+    -rate       - Message rate of a node (default: 900ms)
+    -duration   - Guaranteed benchmark duration for which the results will be logged (default: 40s)
+	-downtime	- Period of time at the end of benchmark for which logs will be discarded (default: 10s)
     -size       - Size of a transmitted message
     -degree     - Peering degree:Count of directly connected peers`
 }
@@ -81,9 +81,9 @@ func (fc *StartGossipCommand) Run(args []string) int {
 	fc.UI.Info(fmt.Sprintf("Node count: %v", fc.nodeCount))
 	fc.UI.Info(fmt.Sprintf("Validator count: %v", fc.validatorCount))
 	fc.UI.Info(fmt.Sprintf("Chosen topology: %s", fc.topology))
-	fc.UI.Info(fmt.Sprintf("Message rate (miliseconds): %v", fc.messageRate))
-	fc.UI.Info(fmt.Sprintf("Benchmark duration (miliseconds): %v", fc.benchDuration))
-	fc.UI.Info(fmt.Sprintf("Benchmark downtime duration (miliseconds): %v", fc.benchDowntime))
+	fc.UI.Info(fmt.Sprintf("Message rate: %v", fc.messageRate))
+	fc.UI.Info(fmt.Sprintf("Benchmark duration: %v", fc.benchDuration))
+	fc.UI.Info(fmt.Sprintf("Benchmark downtime duration: %v", fc.benchDowntime))
 	fc.UI.Info(fmt.Sprintf("Message size (bytes): %v", fc.messageSize))
 	fc.UI.Info(fmt.Sprintf("Peering degree: %v", fc.peeringDegree))
 
@@ -122,9 +122,9 @@ func (fc *StartGossipCommand) NewFlagSet() *flag.FlagSet {
 	flagSet.IntVar(&fc.nodeCount, "nodes", 10, "Count of nodes")
 	flagSet.IntVar(&fc.validatorCount, "validators", 2, "Count of validators")
 	flagSet.StringVar(&fc.topology, "topology", "linear", fmt.Sprintf("Topology of the nodes (%s, %s, %s)", linear, random, superCluster))
-	flagSet.DurationVar(&fc.messageRate, "rate", time.Millisecond*900, "Message rate (in milliseconds) of a node")
-	flagSet.DurationVar(&fc.benchDuration, "duration", time.Second*40, "Duration of a benchmark in seconds")
-	flagSet.DurationVar(&fc.benchDowntime, "downtime", time.Second*10, "Period of time in the end of benchmark for which logs will be discarded")
+	flagSet.DurationVar(&fc.messageRate, "rate", time.Millisecond*900, "Message rate of a node (example: 900ms)")
+	flagSet.DurationVar(&fc.benchDuration, "duration", time.Second*40, "Duration of a benchmark (example: 40s)")
+	flagSet.DurationVar(&fc.benchDowntime, "downtime", time.Second*10, "Period of time at the end of benchmark for which logs will be discarded (example: 10s)")
 	flagSet.IntVar(&fc.messageSize, "size", 4096, "Size (in bytes) of a transmitted message")
 	flagSet.IntVar(&fc.peeringDegree, "degree", 4, "Peering degree: count of directly connected peers")
 	flagSet.IntVar(&fc.startingPort, "port", 10000, "Port of the first agent")

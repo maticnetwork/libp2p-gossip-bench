@@ -34,6 +34,7 @@ type ClusterConfig struct {
 	ValidatorCount int // number of validator agents in a cluster
 	StartingPort   int
 	Ip             string
+	NoLatency      bool
 	MsgSize        int
 	Kbps           int
 	MTU            int
@@ -105,6 +106,9 @@ func (c *Cluster) RemoveAgent(id int) error {
 }
 
 func (c *Cluster) CreateConn(baseConn net.Conn, leftPortID, rightPortID int) (net.Conn, error) {
+	if c.config.NoLatency {
+		return baseConn, nil
+	}
 	lcity, rcity := c.GetAgentCity(leftPortID), c.GetAgentCity(rightPortID)
 	latencyDuration := c.latency.Find(lcity, rcity)
 
