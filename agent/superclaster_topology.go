@@ -2,12 +2,12 @@ package agent
 
 import (
 	"fmt"
-	"math/rand"
 )
 
+// Each non validator is connected to at least one validator
 type SuperClusterTopology struct {
-	ValidatorPeering    uint // number of connections between each validator to other validators. It can be less for some peers
-	NonValidatorPeering uint // number of connections between each non validator to some validator
+	ValidatorPeering    uint // number of connections between each validator to other validators. It can be less for some validators
+	NonValidatorPeering uint // number of connections between each non validator to other non validators.
 }
 
 // Creates supercluster topology connections between peers
@@ -24,33 +24,15 @@ func (t SuperClusterTopology) MakeConnections(agents map[int]agentContainer) {
 
 	connections := NewConnectionsList()
 
-	// Connect each non validator to some random validator.
-	// Be sure that number of connections is evenly distributed among validators
-	possible := make([]agentContainer, len(validators))
-	copy(possible, validators)
-	possibleCnt := len(validators)
+	// Connect each non validator to exactly one validator
+	index := 0
 	for _, ac := range nonValidators {
-		for i := uint(0); i < t.NonValidatorPeering; i++ {
-			index := rand.Intn(possibleCnt)
-			connections.Add(ac.agent, possible[index].agent)
-			if possibleCnt == 1 {
-				possibleCnt = len(validators)
-			} else {
-				possibleCnt--
-				possible[index], possible[possibleCnt] = possible[possibleCnt], possible[index] // swap possible validators
-			}
-		}
+		connections.Add(ac.agent, validators[index].agent)
+		index = (index + 1) % len(validators)
 	}
 
-	connectionsCount := make([]uint, len(validators))
-	// make connections between validators
-	for i := 0; i < len(validators)-1; i++ {
-		for j := i + 1; j < len(validators) && connectionsCount[i] < t.ValidatorPeering; j++ {
-			connections.Add(validators[i].agent, validators[j].agent)
-			connectionsCount[i]++
-			connectionsCount[j]++
-		}
-	}
+	connections.AddNearbyConnections(validators, t.ValidatorPeering)       // make connections between validators
+	connections.AddNearbyConnections(nonValidators, t.NonValidatorPeering) // make connections between non validators
 
 	// connecting all the nodes from the list
 	success, failed, elapsed := connections.ConnectAll()

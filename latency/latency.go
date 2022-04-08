@@ -24,7 +24,7 @@ type LatencyData struct {
 }
 
 func (l *LatencyData) GetRandomCity() string {
-	n := rand.Int() % len(l.SourcesList)
+	n := rand.Intn(len(l.SourcesList))
 	city := l.SourcesList[n].Name
 	return city
 }

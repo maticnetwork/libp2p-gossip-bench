@@ -176,7 +176,11 @@ func (c *Cluster) MessageLoop(context context.Context, msgRate time.Duration, lo
 }
 
 func (c *Cluster) StartAgents(agentsNumber int, agentConfig GossipConfig) (int, int, time.Duration) {
-	added, failed, time := utils.MultiRoutineRunner(agentsNumber, func(index int) error {
+	const (
+		maxRoutines     = 1000
+		itemsPerRoutine = 1
+	)
+	added, failed, time := utils.MultiRoutineRunner(agentsNumber, itemsPerRoutine, maxRoutines, func(index int) error {
 		// configure agents
 		agent := NewAgent(c.logger, &agentConfig)
 		city := c.latency.GetRandomCity()

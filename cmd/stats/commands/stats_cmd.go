@@ -148,12 +148,14 @@ func addStatistics(logLine Log, result map[string]stats) {
 }
 
 type Header struct {
-	AgentsCount     int           `json:"agentsCount"`
-	ValidatorsCount int           `json:"validatorsCount"`
-	Topology        string        `json:"topology"`
-	PeeringDegree   int           `json:"peeringDegree"`
-	BenchDuration   time.Duration `json:"benchDuration"`
-	MsgRate         time.Duration `json:"msgRate"`
+	AgentsCount        int           `json:"agentsCount"`
+	ValidatorsCount    int           `json:"validatorsCount"`
+	Topology           string        `json:"topology"`
+	PeeringDegree      int           `json:"peeringDegree"`
+	NonValidatorDegree int           `json:"nonValidatorDegree"`
+	ConnectionCount    int           `json:"connectionCount"`
+	BenchDuration      time.Duration `json:"benchDuration"`
+	MsgRate            time.Duration `json:"msgRate"`
 }
 
 type Log struct {
@@ -189,7 +191,13 @@ func printStats(result map[string]stats, header Header) {
 	fmt.Printf("BenchDuration: %s\n", header.BenchDuration)
 	fmt.Printf("MsgRate: %s\n", header.MsgRate)
 	fmt.Printf("PeeringDegree: %d\n", header.PeeringDegree)
-	fmt.Printf("TotalAgents: %v\nTotalValidators:%v\n", header.AgentsCount, header.ValidatorsCount)
+	if header.NonValidatorDegree >= 0 {
+		fmt.Printf("NonValidatorDegree: %d\n", header.NonValidatorDegree)
+	}
+	if header.ConnectionCount >= 0 {
+		fmt.Printf("ConnectionsCount: %d\n", header.ConnectionCount)
+	}
+	fmt.Printf("TotalAgents: %v\nTotalValidators: %v\n", header.AgentsCount, header.ValidatorsCount)
 	for _, stats := range result {
 		maxDuration := stats.lastMsgReceivedTime.Sub(stats.msgSentTime)
 		percentageReceivedMessage := float64(stats.totalNodesReceivedMsg*100) / float64(header.AgentsCount)
