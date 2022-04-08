@@ -22,13 +22,12 @@ type StatsCommand struct {
 
 // Help implements the cli.Command interface
 func (fc *StatsCommand) Help() string {
-	return `Command runs the libp2p framework based on provided configuration (node count, validator count, ).
-	
-	Usage: start -path={filePath} -maxDuration={25s}
-	
-	Options:
-	
-	-path - Path to file with logs
+	return `Command runs the libp2p framework based on provided configuration (node count, validator count).
+
+    Usage: start -path={filePath} -maxDuration={25s}
+
+    Options:	
+    -path        - Path to file with logs
     -maxDuration - Maximum duration in seconds for statistics`
 }
 
@@ -47,8 +46,8 @@ func (fc *StatsCommand) Run(args []string) int {
 	}
 
 	fc.UI.Info("Starting statistics ...")
-	fc.UI.Info(fmt.Sprintf("File path: %v\n", fc.filePath))
-	fc.UI.Info(fmt.Sprintf("Max duration in seconds: %v\n", fc.maxDuration))
+	fc.UI.Info(fmt.Sprintf("File path: %v", fc.filePath))
+	fc.UI.Info(fmt.Sprintf("Max duration in seconds: %v", fc.maxDuration))
 
 	if strings.TrimSpace(fc.filePath) == "" {
 		fc.UI.Info("Empty file path submitted")

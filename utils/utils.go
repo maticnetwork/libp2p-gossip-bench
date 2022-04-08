@@ -6,8 +6,8 @@ import (
 	"time"
 )
 
-const itemsPerRoutine = 10
-const maxRoutines = 100
+const itemsPerRoutine = 2
+const maxRoutines = 1000
 
 // Executes provided function fn in multiple go routines exactly itemCount times
 func MultiRoutineRunner(itemsCount int, fn func(index int) error) (int, int, time.Duration) {

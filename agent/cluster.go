@@ -9,7 +9,6 @@ import (
 	"time"
 
 	lat "github.com/maticnetwork/libp2p-gossip-bench/latency"
-	"github.com/maticnetwork/libp2p-gossip-bench/network"
 	"github.com/maticnetwork/libp2p-gossip-bench/utils"
 	"go.uber.org/zap"
 )
@@ -42,8 +41,6 @@ type ClusterConfig struct {
 
 const defaultKbps = 20 * 1024
 const defaultMTU = 1500
-
-var _ network.LatencyConnFactory = &Cluster{}
 
 func NewCluster(logger *zap.Logger, latency *lat.LatencyData, c ClusterConfig) *Cluster {
 	return &Cluster{
