@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/mitchellh/cli"
@@ -49,7 +50,7 @@ func (fc *StatsCommand) Run(args []string) int {
 	fc.UI.Info(fmt.Sprintf("File path: %v\n", fc.filePath))
 	fc.UI.Info(fmt.Sprintf("Max duration in seconds: %v\n", fc.maxDuration))
 
-	if fc.filePath == "" {
+	if strings.TrimSpace(fc.filePath) == "" {
 		fc.UI.Info("Empty file path submitted")
 		return 1
 	}
