@@ -50,16 +50,16 @@ type StartGossipCommand struct {
 func (fc *StartGossipCommand) Help() string {
 	return `Command runs the libp2p framework based on provided configuration (node count, validator count, ).
 
-    Usage: start -nodes={numberOfNodes} -validators={numberOfvalidators}  -topology={topologyType(linear,ranodm, super-cluster)} -rate={messagesRate} -size={messageSize}
+    Usage: start -nodes={numberOfNodes} -validators={numberOfValidators}  -topology={topologyType(linear,random, super-cluster)} -rate={messagesRate} -size={messageSize}
 
     Options:	
     -nodes      - Count of nodes
     -validators - Count of validators
     -topology   - Topology of the nodes (linear, random, super-cluster)
-    -rate       - Message rate of a node in miliseconds
-    -duration   - Guaranteed benchmark duration in miliseconds for which the results will be logged
-	-downtime	- Period of time in miliseconds at the end of benchmark for which loggs will be discarded 
-    -size       - Size of a transmited message
+    -rate       - Message rate of a node in milliseconds
+    -duration   - Guaranteed benchmark duration in seconds for which the results will be logged
+	-downtime	- Period of time in seconds at the end of benchmark for which logs will be discarded 
+    -size       - Size of a transmitted message
     -degree     - Peering degree:Count of directly connected peers`
 }
 
@@ -123,8 +123,8 @@ func (fc *StartGossipCommand) NewFlagSet() *flag.FlagSet {
 	flagSet.IntVar(&fc.validatorCount, "validators", 2, "Count of validators")
 	flagSet.StringVar(&fc.topology, "topology", "linear", fmt.Sprintf("Topology of the nodes (%s, %s, %s)", linear, random, superCluster))
 	flagSet.DurationVar(&fc.messageRate, "rate", time.Millisecond*900, "Message rate (in milliseconds) of a node")
-	flagSet.DurationVar(&fc.benchDuration, "duration", time.Millisecond*40000, "Duration of a benchmark in milliseconds")
-	flagSet.DurationVar(&fc.benchDowntime, "downtime", time.Millisecond*10000, "Period of time in milliseconds at the end of benchmark for which logs will be discarded")
+	flagSet.DurationVar(&fc.benchDuration, "duration", time.Second*40, "Duration of a benchmark in seconds")
+	flagSet.DurationVar(&fc.benchDowntime, "downtime", time.Second*10, "Period of time in the end of benchmark for which logs will be discarded")
 	flagSet.IntVar(&fc.messageSize, "size", 4096, "Size (in bytes) of a transmitted message")
 	flagSet.IntVar(&fc.peeringDegree, "degree", 4, "Peering degree: count of directly connected peers")
 	flagSet.IntVar(&fc.startingPort, "port", 10000, "Port of the first agent")
