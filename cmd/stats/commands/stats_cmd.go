@@ -106,7 +106,9 @@ func RunStats(filePath string, maxDurationInSeconds int) {
 			fmt.Printf("error unmarshaling log: %s\n", err)
 			return
 		}
-		addStatistics(logLine, result)
+		if logLine.AggregateStats {
+			addStatistics(logLine, result)
+		}
 	}
 
 	printStats(result, header)
@@ -134,6 +136,7 @@ func addStatistics(logLine Log, result map[string]stats) {
 			if r.lastMsgReceivedTime.Before(receivedTime) {
 				r.lastMsgReceivedTime = receivedTime
 			}
+			r.sumDurations = r.sumDurations + duration
 			result[logLine.MsgID] = r
 			for _, d := range durations {
 				if duration <= d {
@@ -154,13 +157,14 @@ type Header struct {
 }
 
 type Log struct {
-	MsgID     string    `json:"msgID"`
-	Direction string    `json:"direction"`
-	Msg       string    `json:"msg"`
-	From      string    `json:"from"`
-	Peer      string    `json:"peer"`
-	Topic     string    `json:"topic"`
-	Time      time.Time `json:"time"`
+	MsgID          string    `json:"msgID"`
+	AggregateStats bool      `json:"aggregateStats"`
+	Direction      string    `json:"direction"`
+	Msg            string    `json:"msg"`
+	From           string    `json:"from"`
+	Peer           string    `json:"peer"`
+	Topic          string    `json:"topic"`
+	Time           time.Time `json:"time"`
 }
 
 type stats struct {
@@ -169,6 +173,7 @@ type stats struct {
 	msgSentTime           time.Time
 	lastMsgReceivedTime   time.Time
 	durationStatistics    map[time.Duration]int
+	sumDurations          time.Duration
 }
 
 func incrementNodesCount(durationStatistics map[time.Duration]int, duration time.Duration) {
@@ -180,18 +185,18 @@ func incrementNodesCount(durationStatistics map[time.Duration]int, duration time
 }
 
 func printStats(result map[string]stats, header Header) {
+	fmt.Printf("Topology: %s\n", header.Topology)
+	fmt.Printf("BenchDuration: %s\n", header.BenchDuration)
+	fmt.Printf("MsgRate: %s\n", header.MsgRate)
+	fmt.Printf("PeeringDegree: %d\n", header.PeeringDegree)
+	fmt.Printf("TotalAgents: %v\nTotalValidators:%v\n", header.AgentsCount, header.ValidatorsCount)
 	for _, stats := range result {
 		maxDuration := stats.lastMsgReceivedTime.Sub(stats.msgSentTime)
 		percentageReceivedMessage := float64(stats.totalNodesReceivedMsg*100) / float64(header.AgentsCount)
 		percentageNotReceivedMessage := 100 - percentageReceivedMessage
 		totalNodesNotReceivedMsg := header.AgentsCount - stats.totalNodesReceivedMsg
-
+		timeSinceMsgSent := stats.lastMsgReceivedTime.Sub(stats.msgSentTime)
 		fmt.Println("=== Statistics ===")
-		fmt.Printf("Topology: %s\n", header.Topology)
-		fmt.Printf("BenchDuration: %s\n", header.BenchDuration)
-		fmt.Printf("MsgRate: %s\n", header.MsgRate)
-		fmt.Printf("PeeringDegree: %d\n", header.PeeringDegree)
-		fmt.Printf("TotalAgents: %v\nTotalValidators:%v\n", header.AgentsCount, header.ValidatorsCount)
 		fmt.Printf("MessageID: %s\nTotalNodesReceivedMsg: %d (%.2f%%)\nTotalNodesNotReceivedMessage: %d (%.2f%%)\nMsgSentTime: %s\nLastMsgReceivedTime: %s\nLastNodeRecivedMsgAfter: %s\n",
 			stats.msgID,
 			stats.totalNodesReceivedMsg,
@@ -200,13 +205,14 @@ func printStats(result map[string]stats, header Header) {
 			percentageNotReceivedMessage,
 			stats.msgSentTime,
 			stats.lastMsgReceivedTime,
-			stats.lastMsgReceivedTime.Sub(stats.msgSentTime))
+			timeSinceMsgSent)
 		for _, d := range durations {
 			if d <= maxDuration {
 				fmt.Printf("Threshold: <= %s, ReceivedMsgNodesCount: %d/%d (%.2f%%)\n",
 					d, stats.durationStatistics[d], header.AgentsCount, float64(stats.durationStatistics[d])/float64(header.AgentsCount)*100)
 			}
 		}
+		fmt.Printf("Average received message time for nodes: %d of total %d is %.2f\n", stats.totalNodesReceivedMsg, header.AgentsCount, stats.sumDurations.Seconds()/float64(stats.totalNodesReceivedMsg))
 	}
 }
 
