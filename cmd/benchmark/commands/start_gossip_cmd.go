@@ -50,16 +50,16 @@ type StartGossipCommand struct {
 func (fc *StartGossipCommand) Help() string {
 	return `Command runs the libp2p framework based on provided configuration (node count, validator count, ).
 
-    Usage: start -nodes={numberOfNodes} -validators={numberOfvalidators}  -topology={topologyType(linear,ranodm, super-cluster)} -rate={messagesRate} -size={messageSize}
+    Usage: start -nodes={numberOfNodes} -validators={numberOfValidators}  -topology={topologyType(linear,random, super-cluster)} -rate={messagesRate} -size={messageSize}
 
     Options:	
     -nodes      - Count of nodes
     -validators - Count of validators
     -topology   - Topology of the nodes (linear, random, super-cluster)
-    -rate       - Message rate of a node in miliseconds
-    -duration   - Guaranteed benchmark duration in miliseconds for which the results will be logged
-	-downtime	- Period of time in miliseconds at the end of benchmark for which loggs will be discarded 
-    -size       - Size of a transmited message
+    -rate       - Message rate of a node in milliseconds
+    -duration   - Guaranteed benchmark duration in seconds for which the results will be logged
+	-downtime	- Period of time in seconds at the end of benchmark for which logs will be discarded 
+    -size       - Size of a transmitted message
     -degree     - Peering degree:Count of directly connected peers`
 }
 
@@ -109,7 +109,7 @@ func (fc *StartGossipCommand) Run(args []string) int {
 		return 1
 	}
 
-	StartGossipBench(fc.nodeCount, fc.validatorCount, fc.startingPort, fc.messageSize, fc.messageRate, fc.benchDuration, fc.benchDowntime, topology)
+	StartGossipBench(fc.nodeCount, fc.validatorCount, fc.peeringDegree, fc.startingPort, fc.messageSize, fc.messageRate, fc.benchDuration, fc.benchDowntime, topology)
 
 	fc.UI.Info("Benchmark executed")
 
@@ -122,16 +122,17 @@ func (fc *StartGossipCommand) NewFlagSet() *flag.FlagSet {
 	flagSet.IntVar(&fc.nodeCount, "nodes", 10, "Count of nodes")
 	flagSet.IntVar(&fc.validatorCount, "validators", 2, "Count of validators")
 	flagSet.StringVar(&fc.topology, "topology", "linear", fmt.Sprintf("Topology of the nodes (%s, %s, %s)", linear, random, superCluster))
-	flagSet.DurationVar(&fc.messageRate, "rate", time.Millisecond*900, "Message rate (in miliseconds) of a node")
-	flagSet.DurationVar(&fc.benchDuration, "duration", time.Millisecond*40000, "Duration of a benchmark in miliseconds")
-	flagSet.IntVar(&fc.messageSize, "size", 4096, "Size (in bytes) of a transmited message")
+	flagSet.DurationVar(&fc.messageRate, "rate", time.Millisecond*900, "Message rate (in milliseconds) of a node")
+	flagSet.DurationVar(&fc.benchDuration, "duration", time.Second*40, "Duration of a benchmark in seconds")
+	flagSet.DurationVar(&fc.benchDowntime, "downtime", time.Second*10, "Period of time in the end of benchmark for which logs will be discarded")
+	flagSet.IntVar(&fc.messageSize, "size", 4096, "Size (in bytes) of a transmitted message")
 	flagSet.IntVar(&fc.peeringDegree, "degree", 4, "Peering degree: count of directly connected peers")
 	flagSet.IntVar(&fc.startingPort, "port", 10000, "Port of the first agent")
 
 	return flagSet
 }
 
-func StartGossipBench(agentsNumber, validatorsNumber, startingPort, msgSize int, msgRate, benchDuration, benchDowntime time.Duration, toplogy agent.Topology) {
+func StartGossipBench(agentsNumber, validatorsNumber, peeringDegree, startingPort, msgSize int, msgRate, benchDuration, benchDowntime time.Duration, topology agent.Topology) {
 	// remove file if exists
 	// logger configuration
 	cfg := zap.NewProductionConfig()
@@ -150,6 +151,14 @@ func StartGossipBench(agentsNumber, validatorsNumber, startingPort, msgSize int,
 	// flush buffer
 	defer logger.Sync()
 
+	logger.Info("Starting gossip benchmark",
+		zap.Int("agentsCount", agentsNumber),
+		zap.Int("validatorsCount", validatorsNumber),
+		zap.String("topology", fmt.Sprintf("%T", topology)),
+		zap.Duration("benchDuration", benchDuration),
+		zap.Duration("msgRate", msgRate),
+		zap.Int("peeringDegree", peeringDegree),
+	)
 	latencyData := lat.ReadLatencyDataFromJson()
 	cluster := agent.NewCluster(logger, latencyData, agent.ClusterConfig{
 		Ip:             IpString,
@@ -168,7 +177,7 @@ func StartGossipBench(agentsNumber, validatorsNumber, startingPort, msgSize int,
 	acfg.Transport = transportManager.Transport()
 	agentsAdded, agentsFailed, timeAdded := cluster.StartAgents(agentsNumber, *acfg)
 	fmt.Printf("Agents added: %d. Failed agents: %v, Elapsed time: %v\n", agentsAdded, agentsFailed, timeAdded)
-	cluster.ConnectAgents(toplogy)
+	cluster.ConnectAgents(topology)
 
 	fmt.Println("Gossip started")
 

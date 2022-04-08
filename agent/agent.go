@@ -82,8 +82,8 @@ func DefaultGossipConfig() *GossipConfig {
 const topicName = "Topic"
 
 type packet struct {
-	messageID uuid.UUID
-	isUseful  bool
+	MessageID uuid.UUID
+	IsUseful  bool
 }
 
 func NewAgent(logger *zap.Logger, config *GossipConfig) *GossipAgent {
@@ -155,8 +155,8 @@ func (a *GossipAgent) Listen(ipString string, port int) error {
 			a.Logger.Info("message received",
 				zap.String("peer", host.ID().Pretty()),
 				zap.String("direction", "received"),
-				zap.String("msgID", data.messageID.String()),
-				zap.Bool("aggregateStats", data.isUseful),
+				zap.String("msgID", data.MessageID.String()),
+				zap.Bool("aggregateStats", data.IsUseful),
 				zap.String("from", raw.ReceivedFrom.Pretty()),
 			)
 		}
@@ -196,8 +196,8 @@ func (a *GossipAgent) Disconnect(remote Agent) error {
 
 func (a *GossipAgent) SendMessage(size int, isUseful bool) error {
 	data := packet{
-		messageID: uuid.New(),
-		isUseful:  isUseful,
+		MessageID: uuid.New(),
+		IsUseful:  isUseful,
 	}
 	msg, err := createMessage(data, size)
 	if err != nil {
@@ -209,7 +209,7 @@ func (a *GossipAgent) SendMessage(size int, isUseful bool) error {
 		zap.String("peer", a.Host.ID().Pretty()),
 		zap.String("direction", "sent"),
 		zap.Bool("aggregateStats", isUseful),
-		zap.String("msgID", data.messageID.String()),
+		zap.String("msgID", data.MessageID.String()),
 	)
 
 	return a.Topic.Publish(context.Background(), msg)

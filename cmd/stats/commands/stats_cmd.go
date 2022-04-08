@@ -91,6 +91,14 @@ func RunStats(filePath string, maxDurationInSeconds int) {
 
 	result := make(map[string]stats)
 	s := bufio.NewScanner(f)
+	s.Scan()
+	var header Header
+	err = json.Unmarshal(s.Bytes(), &header)
+	if err != nil {
+		fmt.Printf("error unmarshaling header: %s\n", err)
+		return
+	}
+
 	var logLine Log
 	for s.Scan() {
 		err := json.Unmarshal(s.Bytes(), &logLine)
@@ -98,11 +106,14 @@ func RunStats(filePath string, maxDurationInSeconds int) {
 			fmt.Printf("error unmarshaling log: %s\n", err)
 			return
 		}
-		addStatistics(logLine, result)
+		if logLine.AggregateStats {
+			addStatistics(logLine, result)
+		}
 	}
 
-	printStats(result)
+	printStats(result, header)
 }
+
 func addStatistics(logLine Log, result map[string]stats) {
 	if logLine.Direction == "sent" {
 		sentTime := logLine.Time
@@ -119,12 +130,13 @@ func addStatistics(logLine Log, result map[string]stats) {
 	} else if logLine.Direction == "received" {
 		receivedTime := logLine.Time
 		if r, ok := result[logLine.MsgID]; ok {
-			total := r.totalNodesCount
-			r.totalNodesCount = total + 1
+			total := r.totalNodesReceivedMsg
+			r.totalNodesReceivedMsg = total + 1
 			duration := receivedTime.Sub(r.msgSentTime)
 			if r.lastMsgReceivedTime.Before(receivedTime) {
 				r.lastMsgReceivedTime = receivedTime
 			}
+			r.sumDurations = r.sumDurations + duration
 			result[logLine.MsgID] = r
 			for _, d := range durations {
 				if duration <= d {
@@ -135,27 +147,33 @@ func addStatistics(logLine Log, result map[string]stats) {
 	}
 }
 
+type Header struct {
+	AgentsCount     int           `json:"agentsCount"`
+	ValidatorsCount int           `json:"validatorsCount"`
+	Topology        string        `json:"topology"`
+	PeeringDegree   int           `json:"peeringDegree"`
+	BenchDuration   time.Duration `json:"benchDuration"`
+	MsgRate         time.Duration `json:"msgRate"`
+}
+
 type Log struct {
-	MsgID     string    `json:"msgID"`
-	Direction string    `json:"direction"`
-	Msg       string    `json:"msg"`
-	From      string    `json:"from"`
-	Peer      string    `json:"peer"`
-	Topic     string    `json:"topic"`
-	Time      time.Time `json:"time"`
+	MsgID          string    `json:"msgID"`
+	AggregateStats bool      `json:"aggregateStats"`
+	Direction      string    `json:"direction"`
+	Msg            string    `json:"msg"`
+	From           string    `json:"from"`
+	Peer           string    `json:"peer"`
+	Topic          string    `json:"topic"`
+	Time           time.Time `json:"time"`
 }
 
 type stats struct {
-	totalNodesCount     int
-	msgID               string
-	msgSentTime         time.Time
-	lastMsgReceivedTime time.Time
-	durationStatistics  map[time.Duration]int
-}
-
-func (s stats) String() string {
-	return fmt.Sprintf("MessageID: %s\nTotalNodes:%d\nSentTime: %s\nLastReceivedTime: %s\nAllNodesRecivedMsgIn: %.2f second(s)\n",
-		s.msgID, s.totalNodesCount, s.msgSentTime, s.lastMsgReceivedTime, s.lastMsgReceivedTime.Sub(s.msgSentTime).Seconds())
+	totalNodesReceivedMsg int
+	msgID                 string
+	msgSentTime           time.Time
+	lastMsgReceivedTime   time.Time
+	durationStatistics    map[time.Duration]int
+	sumDurations          time.Duration
 }
 
 func incrementNodesCount(durationStatistics map[time.Duration]int, duration time.Duration) {
@@ -166,16 +184,35 @@ func incrementNodesCount(durationStatistics map[time.Duration]int, duration time
 	}
 }
 
-func printStats(result map[string]stats) {
+func printStats(result map[string]stats, header Header) {
+	fmt.Printf("Topology: %s\n", header.Topology)
+	fmt.Printf("BenchDuration: %s\n", header.BenchDuration)
+	fmt.Printf("MsgRate: %s\n", header.MsgRate)
+	fmt.Printf("PeeringDegree: %d\n", header.PeeringDegree)
+	fmt.Printf("TotalAgents: %v\nTotalValidators:%v\n", header.AgentsCount, header.ValidatorsCount)
 	for _, stats := range result {
 		maxDuration := stats.lastMsgReceivedTime.Sub(stats.msgSentTime)
-		fmt.Printf("Statistics:\n%v", stats)
+		percentageReceivedMessage := float64(stats.totalNodesReceivedMsg*100) / float64(header.AgentsCount)
+		percentageNotReceivedMessage := 100 - percentageReceivedMessage
+		totalNodesNotReceivedMsg := header.AgentsCount - stats.totalNodesReceivedMsg
+		timeSinceMsgSent := stats.lastMsgReceivedTime.Sub(stats.msgSentTime)
+		fmt.Println("=== Statistics ===")
+		fmt.Printf("MessageID: %s\nTotalNodesReceivedMsg: %d (%.2f%%)\nTotalNodesNotReceivedMessage: %d (%.2f%%)\nMsgSentTime: %s\nLastMsgReceivedTime: %s\nLastNodeRecivedMsgAfter: %s\n",
+			stats.msgID,
+			stats.totalNodesReceivedMsg,
+			percentageReceivedMessage,
+			totalNodesNotReceivedMsg,
+			percentageNotReceivedMessage,
+			stats.msgSentTime,
+			stats.lastMsgReceivedTime,
+			timeSinceMsgSent)
 		for _, d := range durations {
 			if d <= maxDuration {
-				fmt.Printf("Threshold: <= %vsecond(s), NodeCount: %d, Percentage: %.2f%%\n",
-					d.Seconds(), stats.durationStatistics[d], float64(stats.durationStatistics[d])/float64(stats.totalNodesCount)*100)
+				fmt.Printf("Threshold: <= %s, ReceivedMsgNodesCount: %d/%d (%.2f%%)\n",
+					d, stats.durationStatistics[d], header.AgentsCount, float64(stats.durationStatistics[d])/float64(header.AgentsCount)*100)
 			}
 		}
+		fmt.Printf("Average received message time for nodes: %d of total %d is %.2f\n", stats.totalNodesReceivedMsg, header.AgentsCount, stats.sumDurations.Seconds()/float64(stats.totalNodesReceivedMsg))
 	}
 }
 
