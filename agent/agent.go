@@ -28,7 +28,7 @@ type Agent interface {
 	Listen(ipString string, port int) error
 	Connect(Agent) error
 	Disconnect(Agent) error
-	SendMessage(size int) error
+	SendMessage(size int, isUseful bool) error
 	Stop() error
 	NumPeers() int
 }
@@ -80,6 +80,11 @@ func DefaultGossipConfig() *GossipConfig {
 // gossipsub.
 // topic for pubsub
 const topicName = "Topic"
+
+type packet struct {
+	messageID uuid.UUID
+	isUseful  bool
+}
 
 func NewAgent(logger *zap.Logger, config *GossipConfig) *GossipAgent {
 	return &GossipAgent{
@@ -141,18 +146,17 @@ func (a *GossipAgent) Listen(ipString string, port int) error {
 				continue
 			}
 
-			// read message ID from received bytes
-			var msgID uuid.UUID
-			buf := bytes.NewBuffer(raw.Data)
-			if err := binary.Read(buf, byteOrder, &msgID); err != nil {
+			// read message data from received bytes
+			var data packet
+			if err := readMessage(raw.Data, &data); err != nil {
 				fmt.Printf("Peer %v error reading message ID: %v\n", host.ID(), err)
-				continue
-			}
 
+			}
 			a.Logger.Info("message received",
 				zap.String("peer", host.ID().Pretty()),
 				zap.String("direction", "received"),
-				zap.String("msgID", msgID.String()),
+				zap.String("msgID", data.messageID.String()),
+				zap.Bool("aggregateStats", data.isUseful),
 				zap.String("from", raw.ReceivedFrom.Pretty()),
 			)
 		}
@@ -190,9 +194,12 @@ func (a *GossipAgent) Disconnect(remote Agent) error {
 	return fmt.Errorf("could not disconnect from %s to %s", a.Host.Addrs()[0], remote)
 }
 
-func (a *GossipAgent) SendMessage(size int) error {
-	msgID := uuid.New()
-	msg, err := createMessage(msgID, size)
+func (a *GossipAgent) SendMessage(size int, isUseful bool) error {
+	data := packet{
+		messageID: uuid.New(),
+		isUseful:  isUseful,
+	}
+	msg, err := createMessage(data, size)
 	if err != nil {
 		return err
 	}
@@ -201,7 +208,8 @@ func (a *GossipAgent) SendMessage(size int) error {
 	a.Logger.Info("message sent",
 		zap.String("peer", a.Host.ID().Pretty()),
 		zap.String("direction", "sent"),
-		zap.String("msgID", msgID.String()),
+		zap.Bool("aggregateStats", isUseful),
+		zap.String("msgID", data.messageID.String()),
 	)
 
 	return a.Topic.Publish(context.Background(), msg)
@@ -245,11 +253,11 @@ func (a *GossipAgent) getPubsubGossipParams() pubsub.GossipSubParams {
 
 // createMessage function fills the necessarry message size with
 // unique ID and the rest with random bytes
-func createMessage(id uuid.UUID, size int) ([]byte, error) {
+func createMessage(data packet, size int) ([]byte, error) {
 	buf := new(bytes.Buffer)
 
 	// write the ID in first
-	if err := binary.Write(buf, byteOrder, id); err != nil {
+	if err := binary.Write(buf, byteOrder, data); err != nil {
 		return nil, err
 	}
 
@@ -267,4 +275,13 @@ func createMessage(id uuid.UUID, size int) ([]byte, error) {
 	}
 
 	return buf.Bytes(), nil
+}
+
+// readMessage is used to decode received messages into a passed data object
+func readMessage(b []byte, data *packet) error {
+	buf := bytes.NewBuffer(b)
+	if err := binary.Read(buf, byteOrder, data); err != nil {
+		return err
+	}
+	return nil
 }
