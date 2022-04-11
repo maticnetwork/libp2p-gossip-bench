@@ -24,7 +24,7 @@ type StatsCommand struct {
 func (fc *StatsCommand) Help() string {
 	return `Command runs the libp2p framework based on provided configuration (node count, validator count).
 
-    Usage: start -path={filePath} -maxDuration={25s}
+    Usage: start -path={filePath} -maxDuration={25}
 
     Options:	
     -path        - Path to file with logs

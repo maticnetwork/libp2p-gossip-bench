@@ -38,9 +38,9 @@ type StartGossipCommand struct {
 	nodeCount      int
 	validatorCount int
 	topology       string
-	messageRate    time.Duration
-	benchDuration  time.Duration
-	benchDowntime  time.Duration
+	messageRate    int
+	benchDuration  int
+	benchDowntime  int
 	messageSize    int
 	peeringDegree  int
 	startingPort   int
@@ -77,21 +77,10 @@ func (fc *StartGossipCommand) Run(args []string) int {
 		return 1
 	}
 
-	fc.UI.Info("Starting libp2p benchmark ...")
-	fc.UI.Info(fmt.Sprintf("Node count: %v", fc.nodeCount))
-	fc.UI.Info(fmt.Sprintf("Validator count: %v", fc.validatorCount))
-	fc.UI.Info(fmt.Sprintf("Chosen topology: %s", fc.topology))
-	fc.UI.Info(fmt.Sprintf("Message rate (miliseconds): %v", fc.messageRate))
-	fc.UI.Info(fmt.Sprintf("Benchmark duration (miliseconds): %v", fc.benchDuration))
-	fc.UI.Info(fmt.Sprintf("Benchmark downtime duration (miliseconds): %v", fc.benchDowntime))
-	fc.UI.Info(fmt.Sprintf("Message size (bytes): %v", fc.messageSize))
-	fc.UI.Info(fmt.Sprintf("Peering degree: %v", fc.peeringDegree))
-
-	fc.UI.Info("Starting benchmark...")
-
 	var topology agent.Topology
 	switch fc.topology {
 	case linear:
+		fc.peeringDegree = 2
 		topology = agent.LinearTopology{}
 	case random:
 		topology = agent.RandomTopology{
@@ -109,6 +98,18 @@ func (fc *StartGossipCommand) Run(args []string) int {
 		return 1
 	}
 
+	fc.UI.Info("Starting libp2p benchmark ...")
+	fc.UI.Info(fmt.Sprintf("Node count: %v", fc.nodeCount))
+	fc.UI.Info(fmt.Sprintf("Validator count: %v", fc.validatorCount))
+	fc.UI.Info(fmt.Sprintf("Chosen topology: %s", fc.topology))
+	fc.UI.Info(fmt.Sprintf("Message rate (miliseconds): %v", fc.messageRate))
+	fc.UI.Info(fmt.Sprintf("Benchmark duration (seconds): %v", fc.benchDuration))
+	fc.UI.Info(fmt.Sprintf("Benchmark downtime duration (seconds): %v", fc.benchDowntime))
+	fc.UI.Info(fmt.Sprintf("Message size (bytes): %v", fc.messageSize))
+	fc.UI.Info(fmt.Sprintf("Peering degree: %v", fc.peeringDegree))
+
+	fc.UI.Info("Starting benchmark...")
+
 	StartGossipBench(fc.nodeCount, fc.validatorCount, fc.peeringDegree, fc.startingPort, fc.messageSize, fc.messageRate, fc.benchDuration, fc.benchDowntime, topology)
 
 	fc.UI.Info("Benchmark executed")
@@ -122,17 +123,17 @@ func (fc *StartGossipCommand) NewFlagSet() *flag.FlagSet {
 	flagSet.IntVar(&fc.nodeCount, "nodes", 10, "Count of nodes")
 	flagSet.IntVar(&fc.validatorCount, "validators", 2, "Count of validators")
 	flagSet.StringVar(&fc.topology, "topology", "linear", fmt.Sprintf("Topology of the nodes (%s, %s, %s)", linear, random, superCluster))
-	flagSet.DurationVar(&fc.messageRate, "rate", time.Millisecond*900, "Message rate (in milliseconds) of a node")
-	flagSet.DurationVar(&fc.benchDuration, "duration", time.Second*40, "Duration of a benchmark in seconds")
-	flagSet.DurationVar(&fc.benchDowntime, "downtime", time.Second*10, "Period of time in the end of benchmark for which logs will be discarded")
+	flagSet.IntVar(&fc.messageRate, "rate", 900, "Message rate (in milliseconds) of a node")
+	flagSet.IntVar(&fc.benchDuration, "duration", 40, "Duration of a benchmark in seconds")
+	flagSet.IntVar(&fc.benchDowntime, "downtime", 10, "Period of time in the end of benchmark for which logs will be discarded")
 	flagSet.IntVar(&fc.messageSize, "size", 4096, "Size (in bytes) of a transmitted message")
-	flagSet.IntVar(&fc.peeringDegree, "degree", 4, "Peering degree: count of directly connected peers")
+	flagSet.IntVar(&fc.peeringDegree, "degree", 3, "Peering degree: count of directly connected peers")
 	flagSet.IntVar(&fc.startingPort, "port", 10000, "Port of the first agent")
 
 	return flagSet
 }
 
-func StartGossipBench(agentsNumber, validatorsNumber, peeringDegree, startingPort, msgSize int, msgRate, benchDuration, benchDowntime time.Duration, topology agent.Topology) {
+func StartGossipBench(agentsNumber, validatorsNumber, peeringDegree, startingPort, msgSize, msgRateMilis, benchDurationSeconds, benchDowntimeSeconds int, topology agent.Topology) {
 	// remove file if exists
 	// logger configuration
 	cfg := zap.NewProductionConfig()
@@ -155,8 +156,8 @@ func StartGossipBench(agentsNumber, validatorsNumber, peeringDegree, startingPor
 		zap.Int("agentsCount", agentsNumber),
 		zap.Int("validatorsCount", validatorsNumber),
 		zap.String("topology", fmt.Sprintf("%T", topology)),
-		zap.Duration("benchDuration", benchDuration),
-		zap.Duration("msgRate", msgRate),
+		zap.Int("benchDuration", benchDurationSeconds),
+		zap.Int("msgRate", msgRateMilis),
 		zap.Int("peeringDegree", peeringDegree),
 	)
 	latencyData := lat.ReadLatencyDataFromJson()
@@ -181,8 +182,13 @@ func StartGossipBench(agentsNumber, validatorsNumber, peeringDegree, startingPor
 
 	fmt.Println("Gossip started")
 
+	// initialize intervals
+	msgRate := time.Duration(msgRateMilis) * time.Millisecond
+	benchDuration := time.Duration(benchDurationSeconds) * time.Second
+	benchDowntime := time.Duration(benchDowntimeSeconds) * time.Second
 	// timeout for the whole benchmark should encorporate defined downtime
 	benchTimeout := benchDuration + benchDowntime
+
 	msgsPublishedCnt, msgsFailedCnt := cluster.MessageLoop(context.Background(), msgRate, benchDuration, benchTimeout)
 	fmt.Printf("Published %d messages \n", msgsPublishedCnt)
 	fmt.Printf("Failed %d messages \n", msgsFailedCnt)
