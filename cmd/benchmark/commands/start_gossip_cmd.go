@@ -24,9 +24,9 @@ const (
 )
 
 const (
-	IpString                = "127.0.0.1"
-	outputFileDirectory     = "/tmp"
-	RandomTopologyConnected = true
+	IpString                 = "127.0.0.1"
+	outputFileDirectory      = "/tmp"
+	RandomTopologyCreateRing = true
 )
 
 type GossipParameters struct {
@@ -96,9 +96,9 @@ func (fc *StartGossipCommand) Run(args []string) int {
 		topology = agent.LinearTopology{}
 	case random:
 		topology = agent.RandomTopology{
-			Connected: RandomTopologyConnected,
-			MaxPeers:  uint(fc.Params.peeringDegree),
-			Count:     uint(fc.Params.connectionCount),
+			CreateRing: RandomTopologyCreateRing,
+			MaxPeers:   uint(fc.Params.peeringDegree),
+			Count:      uint(fc.Params.connectionCount),
 		}
 	case superCluster:
 		topology = agent.SuperClusterTopology{

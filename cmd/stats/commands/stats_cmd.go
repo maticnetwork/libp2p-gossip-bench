@@ -188,7 +188,7 @@ func incrementNodesCount(durationStatistics map[time.Duration]int, duration time
 
 func printStats(result map[string]stats, header Header) {
 	fmt.Printf("Topology: %s\n", header.Topology)
-	fmt.Printf("BenchDuration: %s\n", header.BenchDuration)
+	fmt.Printf("BenchDuration: %s\n", header.BenchDuration*time.Second)
 	fmt.Printf("MsgRate: %s\n", header.MsgRate)
 	fmt.Printf("PeeringDegree: %d\n", header.PeeringDegree)
 	if header.NonValidatorDegree >= 0 {

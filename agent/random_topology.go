@@ -6,34 +6,47 @@ import (
 )
 
 type RandomTopology struct {
-	MaxPeers  uint // maximum number of connected peers
-	Count     uint // count of connections in topology
-	Connected bool // if true there will always be linear connection beetwen nodes
+	MaxPeers   uint // maximum number of connected peers
+	Count      uint // count of connections in topology
+	CreateRing bool // if true there will always be linear connection beetwen nodes
 }
 
 // Creates random topology connections between peers
 func (t RandomTopology) MakeConnections(agents map[int]agentContainer) {
-	count := t.Count
 	connections := NewConnectionsList()
 
-	possiblePeers := make([]agentContainer, len(agents))         // list of all possible peers that can be choosen as source in one connection
-	peerMap := make(map[int]*rndToplogyPeer, len(possiblePeers)) // map portID -> *rndToplogyPeer
+	// create slice of agents and then populate random connection
+	possiblePeers := make([]agentContainer, 0, len(agents)) // list of all possible peers that can be choosen as source in one connection
+	for _, value := range agents {
+		possiblePeers = append(possiblePeers, value)
+	}
+	t.populate(&connections, possiblePeers)
 
-	// initializing structures
-	index := 0
-	for _, agentCont := range agents {
-		possiblePeers[index] = agentCont
-		index++
+	// connecting all the nodes from the list
+	success, failed, elapsed := connections.ConnectAll()
+	fmt.Printf("Connecting finished. Success: %d, failed: %d. Elapsed: %v\n", success, failed, elapsed)
+}
+
+func (t RandomTopology) populate(connections *connectionsList, peers []agentContainer) {
+	count := t.Count
+	possiblePeers := make([]agentContainer, len(peers))  // this holds list of all possible peers in one iteration
+	peerMap := make(map[int]*rndToplogyPeer, len(peers)) // map portID -> *rndToplogyPeer
+
+	// init structures
+	copy(possiblePeers, peers)
+	for _, agentCont := range peers {
+		peerMap[agentCont.port] = newRndTopologyPeer(agentCont.port, agentCont.agent, peers)
 	}
 
-	for portID, agentCont := range agents {
-		peerMap[portID] = newRndTopologyPeer(portID, agentCont.agent, agents)
-	}
-
-	// create linear connections between nodes if needed
-	if t.Connected {
-		for i := 0; i <= len(possiblePeers)-2; i++ {
-			src, dst := possiblePeers[i], possiblePeers[i+1]
+	// create ring topology between nodes if specified
+	if t.CreateRing {
+		end := len(possiblePeers)
+		if end <= 2 { // otherwise there would be 1-2 and 2-1 or 1-1 connections
+			end--
+		}
+		for i := 0; i < end && count > 0; i++ {
+			j := (i + 1) % len(possiblePeers)
+			src, dst := possiblePeers[i], possiblePeers[j]
 			peerMap[src.port].RemovePortId(dst.port)
 			peerMap[src.port].IncConnCount()
 			peerMap[dst.port].RemovePortId(src.port)
@@ -92,10 +105,6 @@ func (t RandomTopology) MakeConnections(agents map[int]agentContainer) {
 			possiblePeers = possiblePeers[:newLength]
 		}
 	}
-
-	// connecting all the nodes from the list
-	success, failed, elapsed := connections.ConnectAll()
-	fmt.Printf("Connecting finished. success: %d, failed: %d. Elapsed: %v\n", success, failed, elapsed)
 }
 
 // Holds current number of connections for one peer, port id, agent and slice of all other possible connections (as port ids)
@@ -106,11 +115,11 @@ type rndToplogyPeer struct {
 	possibleConns []int
 }
 
-func newRndTopologyPeer(portID int, agent Agent, agents map[int]agentContainer) *rndToplogyPeer {
+func newRndTopologyPeer(portID int, agent Agent, agents []agentContainer) *rndToplogyPeer {
 	possible := make([]int, 0, len(agents)-1)
-	for otherPortID := range agents {
-		if otherPortID != portID {
-			possible = append(possible, otherPortID)
+	for _, agent := range agents {
+		if agent.port != portID {
+			possible = append(possible, agent.port)
 		}
 	}
 	return &rndToplogyPeer{

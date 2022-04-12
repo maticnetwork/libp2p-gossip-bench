@@ -22,19 +22,26 @@ func (t SuperClusterTopology) MakeConnections(agents map[int]agentContainer) {
 		}
 	}
 
+	// make connections between validators
 	connections := NewConnectionsList()
-
-	// Connect each non validator to exactly one validator
-	index := 0
-	for _, ac := range nonValidators {
-		connections.Add(ac.agent, validators[index].agent)
-		index = (index + 1) % len(validators)
-	}
-
-	connections.AddNearbyConnections(validators, t.ValidatorPeering)       // make connections between validators
-	connections.AddNearbyConnections(nonValidators, t.NonValidatorPeering) // make connections between non validators
-
-	// connecting all the nodes from the list
+	RandomTopology{CreateRing: true, Count: 1000000, MaxPeers: t.ValidatorPeering}.populate(&connections, validators)
 	success, failed, elapsed := connections.ConnectAll()
-	fmt.Printf("Connecting finished. success: %d, failed: %d. Elapsed: %v\n", success, failed, elapsed)
+	fmt.Printf("Connecting validators finished. Success: %d, failed: %d. Elapsed: %v\n", success, failed, elapsed)
+
+	if len(nonValidators) > 0 {
+		// make connections between non validators
+		connections.Clear()
+		RandomTopology{CreateRing: true, Count: 1000000, MaxPeers: t.NonValidatorPeering}.populate(&connections, nonValidators)
+		success, failed, elapsed = connections.ConnectAll()
+		fmt.Printf("Connecting non validators finished. Success: %d, failed: %d. Elapsed: %v\n", success, failed, elapsed)
+
+		// make connection between each non validator and exactly one validator
+		connections.Clear()
+		for i, ac := range nonValidators {
+			j := i % len(validators)
+			connections.Add(ac.agent, validators[j].agent)
+		}
+		success, failed, elapsed = connections.ConnectAll()
+		fmt.Printf("Connecting non validators to validators finished. Success: %d, failed: %d. Elapsed: %v\n", success, failed, elapsed)
+	}
 }
