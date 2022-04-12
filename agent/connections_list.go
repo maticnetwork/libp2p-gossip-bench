@@ -17,22 +17,12 @@ type connectionsList []struct {
 	dest Agent
 }
 
-// Creates new connectionsList
-func NewConnectionsList() connectionsList {
-	return make(connectionsList, 0)
-}
-
 // Add new connection pair to the list
 func (cl *connectionsList) Add(src, dest Agent) {
 	*cl = append(*cl, struct {
 		src  Agent
 		dest Agent
 	}{src: src, dest: dest})
-}
-
-// Clear all the connections
-func (cl *connectionsList) Clear() {
-	*cl = (*cl)[:0]
 }
 
 // Connects all connection pairs (added via Add func)

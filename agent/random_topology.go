@@ -13,7 +13,7 @@ type RandomTopology struct {
 
 // Creates random topology connections between peers
 func (t RandomTopology) MakeConnections(agents map[int]agentContainer) {
-	connections := NewConnectionsList()
+	connections := make(connectionsList, 0)
 
 	// create slice of agents and then populate random connection
 	possiblePeers := make([]agentContainer, 0, len(agents)) // list of all possible peers that can be choosen as source in one connection
