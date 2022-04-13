@@ -1,10 +1,13 @@
 package utils
 
 import (
+	"fmt"
 	"sync"
 	"sync/atomic"
 	"time"
 )
+
+const showProgressBar = true
 
 // Executes provided function fn in multiple go routines exactly itemCount times
 func MultiRoutineRunner(itemsCount, itemsPerRoutine, maxRoutines int, fn func(index int) error) (int, int, time.Duration) {
@@ -17,6 +20,7 @@ func MultiRoutineRunner(itemsCount, itemsPerRoutine, maxRoutines int, fn func(in
 
 	wg := sync.WaitGroup{}
 	wg.Add(routinesCount)
+	cntHo := int32(0)
 
 	for i := 0; i < routinesCount; i++ {
 		cnt, offset := cntPerRoutine, i*cntPerRoutine
@@ -27,6 +31,11 @@ func MultiRoutineRunner(itemsCount, itemsPerRoutine, maxRoutines int, fn func(in
 		go func(offset, cntConnections int) {
 			for i := 0; i < cntConnections; i++ {
 				err := fn(offset + i)
+				v := atomic.AddInt32(&cntHo, 1)
+				if showProgressBar {
+					fmt.Printf("\r%d/%d ", v, itemsCount)
+				}
+
 				if err != nil {
 					atomic.AddInt32(&failed, 1)
 				} else {
@@ -39,5 +48,8 @@ func MultiRoutineRunner(itemsCount, itemsPerRoutine, maxRoutines int, fn func(in
 	}
 
 	wg.Wait()
+	if showProgressBar {
+		fmt.Println()
+	}
 	return int(success), int(failed), time.Since(startTime)
 }

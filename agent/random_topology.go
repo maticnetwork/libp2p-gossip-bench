@@ -150,6 +150,9 @@ func (tp *rndToplogyPeer) RemoveIndex(index int) {
 }
 
 func (tp *rndToplogyPeer) PopRandomPortID() int {
+	if len(tp.possibleConns) == 0 {
+		return -1
+	}
 	index := rand.Intn(len(tp.possibleConns))
 	value := tp.possibleConns[index]
 	tp.RemoveIndex(index)
