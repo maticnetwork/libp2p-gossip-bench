@@ -1,4 +1,4 @@
-package agent
+package cluster
 
 import (
 	"context"
@@ -8,13 +8,14 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/maticnetwork/libp2p-gossip-bench/agent"
 	lat "github.com/maticnetwork/libp2p-gossip-bench/latency"
 	"github.com/maticnetwork/libp2p-gossip-bench/utils"
 	"go.uber.org/zap"
 )
 
 type agentContainer struct {
-	agent       Agent
+	agent       agent.Agent
 	city        string
 	port        int
 	isValidator bool
@@ -53,7 +54,7 @@ func NewCluster(logger *zap.Logger, latency *lat.LatencyData, c ClusterConfig) *
 	}
 }
 
-func (c *Cluster) AddAgent(agent Agent, city string, isValidator bool) (int, error) {
+func (c *Cluster) AddAgent(agent agent.Agent, city string, isValidator bool) (int, error) {
 	// we do not want to execute whole agent.listen in lock, thats is why we have locks at two places
 	c.lock.Lock()
 	c.port++
@@ -73,7 +74,7 @@ func (c *Cluster) AddAgent(agent Agent, city string, isValidator bool) (int, err
 	return listenPort, nil
 }
 
-func (c *Cluster) GetAgent(id int) Agent {
+func (c *Cluster) GetAgent(id int) agent.Agent {
 	return c.GetAgentContainer(id).agent
 }
 
@@ -142,7 +143,7 @@ func (c *Cluster) MessageLoop(ctx context.Context, msgRate time.Duration, logDur
 
 		// wait for each started validator agent
 		wg.Add(1)
-		go func(a Agent) {
+		go func(a agent.Agent) {
 			tm := time.NewTicker(msgRate)
 			defer func() {
 				tm.Stop()
@@ -189,14 +190,14 @@ func (c *Cluster) MessageLoop(ctx context.Context, msgRate time.Duration, logDur
 	return msgsPublishedCnt, msgsFailedCnt
 }
 
-func (c *Cluster) StartAgents(agentsNumber int, agentConfig GossipConfig) (int, int, time.Duration) {
+func (c *Cluster) StartAgents(agentsNumber int, agentConfig agent.GossipConfig) (int, int, time.Duration) {
 	const (
 		maxRoutines     = 1000
 		itemsPerRoutine = 1
 	)
 	added, failed, time := utils.MultiRoutineRunner(agentsNumber, itemsPerRoutine, maxRoutines, func(index int) error {
 		// configure agents
-		agent := NewAgent(c.logger, &agentConfig)
+		agent := agent.NewAgent(c.logger, &agentConfig)
 		city := c.latency.GetRandomCity()
 		_, err := c.AddAgent(agent, city, index < c.config.ValidatorCount)
 		return err

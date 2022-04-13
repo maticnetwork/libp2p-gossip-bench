@@ -1,8 +1,10 @@
-package agent
+package cluster
 
 import (
 	"fmt"
 	"math/rand"
+
+	"github.com/maticnetwork/libp2p-gossip-bench/agent"
 )
 
 type RandomTopology struct {
@@ -111,11 +113,11 @@ func (t RandomTopology) populate(connections *connectionsList, peers []agentCont
 type rndToplogyPeer struct {
 	connCount     uint
 	portID        int
-	agent         Agent
+	agent         agent.Agent
 	possibleConns []int
 }
 
-func newRndTopologyPeer(portID int, agent Agent, agents []agentContainer) *rndToplogyPeer {
+func newRndTopologyPeer(portID int, agent agent.Agent, agents map[int]agentContainer) *rndToplogyPeer {
 	possible := make([]int, 0, len(agents)-1)
 	for _, agent := range agents {
 		if agent.port != portID {

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/maticnetwork/libp2p-gossip-bench/agent"
+	"github.com/maticnetwork/libp2p-gossip-bench/cluster"
 	lat "github.com/maticnetwork/libp2p-gossip-bench/latency"
 	"github.com/maticnetwork/libp2p-gossip-bench/network"
 	"github.com/mitchellh/cli"
@@ -94,19 +95,19 @@ func (fc *StartGossipCommand) Run(args []string) int {
 		fc.Params.connectionCount = -1
 	}
 
-	var topology agent.Topology
+	var topology cluster.Topology
 	switch fc.Params.topology {
 	case linear:
 		fc.Params.peeringDegree = 2
-		topology = agent.LinearTopology{}
+		topology = cluster.LinearTopology{}
 	case random:
-		topology = agent.RandomTopology{
-			CreateRing: RandomTopologyCreateRing,
-			MaxPeers:   uint(fc.Params.peeringDegree),
-			Count:      uint(fc.Params.connectionCount),
+		topology = cluster.RandomTopology{
+			Connected: RandomTopologyConnected,
+			MaxPeers:  uint(fc.Params.peeringDegree),
+			Count:     uint(fc.Params.connectionCount),
 		}
 	case superCluster:
-		topology = agent.SuperClusterTopology{
+		topology = cluster.SuperClusterTopology{
 			ValidatorPeering:    uint(fc.Params.peeringDegree),
 			NonValidatorPeering: uint(fc.Params.nonValidatorDegree),
 		}
@@ -158,7 +159,7 @@ func (fc *StartGossipCommand) NewFlagSet() *flag.FlagSet {
 	return flagSet
 }
 
-func StartGossipBench(ctx context.Context, params GossipParameters, topology agent.Topology) {
+func StartGossipBench(ctx context.Context, params GossipParameters, topology cluster.Topology) {
 	// remove file if exists
 	// logger configuration
 	cfg := zap.NewProductionConfig()
@@ -201,7 +202,7 @@ func StartGossipBench(ctx context.Context, params GossipParameters, topology age
 		zap.Int("connectionCount", params.connectionCount),
 	)
 	latencyData := lat.ReadLatencyDataFromJson()
-	cluster := agent.NewCluster(logger, latencyData, agent.ClusterConfig{
+	cluster := cluster.NewCluster(logger, latencyData, cluster.ClusterConfig{
 		Ip:             IpString,
 		StartingPort:   params.startingPort,
 		MsgSize:        params.messageSize,
