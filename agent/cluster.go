@@ -145,19 +145,19 @@ func (c *Cluster) MessageLoop(context context.Context, msgRate time.Duration, lo
 			defer tm.Stop()
 		outer:
 			for {
+				// log message, used for stats aggregation,
+				// should be logged only during specified benchmark log duration
+				msgTime := time.Now()
+				shouldAggregate := msgTime.Before(start.Add(logDuration))
+
+				err := a.SendMessage(c.config.MsgSize, shouldAggregate)
+				if err == nil {
+					atomic.AddInt64(&msgsPublishedCnt, 1)
+				} else {
+					atomic.AddInt64(&msgsFailedCnt, 1)
+				}
 				select {
 				case <-tm.C:
-					// log message, used for stats aggregation,
-					// should be logged only during specified benchmark log duration
-					msgTime := time.Now()
-					shouldAggregate := msgTime.Before(start.Add(logDuration))
-
-					err := a.SendMessage(c.config.MsgSize, shouldAggregate)
-					if err == nil {
-						atomic.AddInt64(&msgsPublishedCnt, 1)
-					} else {
-						atomic.AddInt64(&msgsFailedCnt, 1)
-					}
 				case <-ch:
 					break outer
 				}

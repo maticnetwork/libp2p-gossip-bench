@@ -138,29 +138,7 @@ func (a *GossipAgent) Listen(ipString string, port int) error {
 	a.Logger.Info("agent successfully subscribed", zap.String("topic", topicName))
 
 	// read messages and print stats to logger
-	go func() {
-		for {
-			raw, err := sub.Next(context.Background())
-			if err != nil {
-				fmt.Printf("Peer %v error receiving message on topic: %v\n", host.ID(), err)
-				continue
-			}
-
-			// read message data from received bytes
-			var data packet
-			if err := readMessage(raw.Data, &data); err != nil {
-				fmt.Printf("Peer %v error reading message ID: %v\n", host.ID(), err)
-
-			}
-			a.Logger.Info("message received",
-				zap.String("peer", host.ID().Pretty()),
-				zap.String("direction", "received"),
-				zap.String("msgID", data.MessageID.String()),
-				zap.Bool("aggregateStats", data.IsUseful),
-				zap.String("from", raw.ReceivedFrom.Pretty()),
-			)
-		}
-	}()
+	go a.readMessagesLoop(sub)
 
 	a.Host, a.Topic = host, topic
 	return nil
@@ -231,6 +209,30 @@ func (a *GossipAgent) Addr() ma.Multiaddr {
 	id := fmt.Sprintf("/ip4/%s/tcp/%s/p2p/%s", ip, port, a.Host.ID())
 	listenAddr, _ := ma.NewMultiaddr(id)
 	return listenAddr
+}
+
+func (a *GossipAgent) readMessagesLoop(sub *pubsub.Subscription) {
+	for {
+		raw, err := sub.Next(context.Background())
+		if err != nil {
+			fmt.Printf("Peer %v error receiving message on topic: %v\n", a.Host.ID(), err)
+			continue
+		}
+
+		// read message data from received bytes
+		var data packet
+		if err := readMessage(raw.Data, &data); err != nil {
+			fmt.Printf("Peer %v error reading message ID: %v\n", a.Host.ID(), err)
+
+		}
+		a.Logger.Info("message received",
+			zap.String("peer", a.Host.ID().Pretty()),
+			zap.String("direction", "received"),
+			zap.String("msgID", data.MessageID.String()),
+			zap.Bool("aggregateStats", data.IsUseful),
+			zap.String("from", raw.ReceivedFrom.Pretty()),
+		)
+	}
 }
 
 // creates a custom gossipsub parameter set.
