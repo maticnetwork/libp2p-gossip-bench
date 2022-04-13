@@ -144,7 +144,7 @@ func (fc *StartGossipCommand) NewFlagSet() *flag.FlagSet {
 	flagSet.IntVar(&fc.Params.messageRate, "rate", 900, "Message rate (in milliseconds) of a node")
 	flagSet.IntVar(&fc.Params.benchDuration, "duration", 40, "Duration of a benchmark in seconds")
 	flagSet.IntVar(&fc.Params.benchDowntime, "downtime", 10, "Period of time in the end of benchmark for which logs will be discarded")
-	flagSet.IntVar(&fc.Params.messageSize, "size", 4096, "Size (in bytes) of a transmitted message")
+	flagSet.IntVar(&fc.Params.messageSize, "size", 1024, "Size (in bytes) of a transmitted message")
 	flagSet.IntVar(&fc.Params.peeringDegree, "degree", 6, "Peering degree: count of directly connected peers")
 	flagSet.IntVar(&fc.Params.nonValidatorDegree, "non-validator-degree", 6, "Peering degree: count of directly connected non-validator peers (super-cluster only)")
 	flagSet.IntVar(&fc.Params.connectionCount, "connection-count", 1500, "Number of connections in random topology")
