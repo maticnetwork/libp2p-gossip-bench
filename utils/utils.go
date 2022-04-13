@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-const showProgressBar = true
+const showProgressBar = false // if true prints MultiRoutineRunner status in terminal
 
 // Executes provided function fn in multiple go routines exactly itemCount times
 func MultiRoutineRunner(itemsCount, itemsPerRoutine, maxRoutines int, fn func(index int) error) (int, int, time.Duration) {
