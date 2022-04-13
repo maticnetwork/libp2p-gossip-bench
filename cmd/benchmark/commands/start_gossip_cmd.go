@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"os/signal"
 	"path/filepath"
+	"syscall"
 	"time"
 
 	"github.com/maticnetwork/libp2p-gossip-bench/agent"
@@ -75,6 +77,9 @@ func (fc *StartGossipCommand) Synopsis() string {
 
 // Run implements the cli.Command interface and runs the command
 func (fc *StartGossipCommand) Run(args []string) int {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
 	flagSet := fc.NewFlagSet()
 	err := flagSet.Parse(args)
 	if err != nil {
@@ -128,7 +133,7 @@ func (fc *StartGossipCommand) Run(args []string) int {
 
 	fc.UI.Info("Starting benchmark...")
 
-	StartGossipBench(fc.Params, topology)
+	StartGossipBench(ctx, fc.Params, topology)
 
 	fc.UI.Info("Benchmark executed")
 
@@ -153,7 +158,7 @@ func (fc *StartGossipCommand) NewFlagSet() *flag.FlagSet {
 	return flagSet
 }
 
-func StartGossipBench(params GossipParameters, topology agent.Topology) {
+func StartGossipBench(ctx context.Context, params GossipParameters, topology agent.Topology) {
 	// remove file if exists
 	// logger configuration
 	cfg := zap.NewProductionConfig()
@@ -169,8 +174,21 @@ func StartGossipBench(params GossipParameters, topology agent.Topology) {
 	if err != nil {
 		panic(err)
 	}
-	// flush buffer
-	defer logger.Sync()
+
+	// initialize intervals
+	msgRate := time.Duration(params.messageRate) * time.Millisecond
+	benchDuration := time.Duration(params.benchDuration) * time.Second
+	benchDowntime := time.Duration(params.benchDowntime) * time.Second
+	// timeout for the whole benchmark should encorporate defined downtime
+	benchTimeout := benchDuration + benchDowntime
+	timeoutCtx, cancel := context.WithTimeout(ctx, benchTimeout)
+
+	defer func() {
+		// flush logger buffer
+		defer logger.Sync()
+		// cleanup for the timeout context
+		cancel()
+	}()
 
 	logger.Info("Starting gossip benchmark",
 		zap.Int("agentsCount", params.nodeCount),
@@ -204,14 +222,7 @@ func StartGossipBench(params GossipParameters, topology agent.Topology) {
 
 	fmt.Println("Gossip started")
 
-	// initialize intervals
-	msgRate := time.Duration(params.messageRate) * time.Millisecond
-	benchDuration := time.Duration(params.benchDuration) * time.Second
-	benchDowntime := time.Duration(params.benchDowntime) * time.Second
-	// timeout for the whole benchmark should encorporate defined downtime
-	benchTimeout := benchDuration + benchDowntime
-
-	msgsPublishedCnt, msgsFailedCnt := cluster.MessageLoop(context.Background(), msgRate, benchDuration, benchTimeout)
+	msgsPublishedCnt, msgsFailedCnt := cluster.MessageLoop(timeoutCtx, msgRate, benchDuration, benchTimeout)
 	fmt.Printf("Published %d messages \n", msgsPublishedCnt)
 	fmt.Printf("Failed %d messages \n", msgsFailedCnt)
 }

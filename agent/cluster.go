@@ -130,20 +130,25 @@ func (c *Cluster) StopAll() {
 	}
 }
 
-func (c *Cluster) MessageLoop(context context.Context, msgRate time.Duration, logDuration, timeout time.Duration) (int64, int64) {
+func (c *Cluster) MessageLoop(ctx context.Context, msgRate time.Duration, logDuration, timeout time.Duration) (int64, int64) {
 	msgsPublishedCnt, msgsFailedCnt := int64(0), int64(0)
-	ch := make(chan struct{})
 	start := time.Now()
 
-	for _, cont := range c.agents {
-		if !cont.isValidator {
+	var wg sync.WaitGroup
+	for _, agentCont := range c.agents {
+		if !agentCont.isValidator {
 			continue
 		}
 
+		// wait for each started validator agent
+		wg.Add(1)
 		go func(a Agent) {
 			tm := time.NewTicker(msgRate)
-			defer tm.Stop()
-		outer:
+			defer func() {
+				tm.Stop()
+				wg.Done()
+			}()
+
 			for {
 				// log message, used for stats aggregation,
 				// should be logged only during specified benchmark log duration
@@ -157,21 +162,30 @@ func (c *Cluster) MessageLoop(context context.Context, msgRate time.Duration, lo
 					atomic.AddInt64(&msgsFailedCnt, 1)
 				}
 				select {
+				case <-ctx.Done():
+					// kill or expiration signal received
+					return
 				case <-tm.C:
-				case <-ch:
-					break outer
+					// log message, used for stats aggregation,
+					// should be logged only during specified benchmark log duration
+					msgTime := time.Now()
+					shouldAggregate := msgTime.Before(start.Add(logDuration))
+
+					err := a.SendMessage(c.config.MsgSize, shouldAggregate)
+					if err == nil {
+						atomic.AddInt64(&msgsPublishedCnt, 1)
+					} else {
+						atomic.AddInt64(&msgsFailedCnt, 1)
+					}
 				}
 			}
 
-		}(cont.agent)
+		}(agentCont.agent)
 	}
 
-	select {
-	case <-time.After(timeout):
-	case <-context.Done():
-	}
+	// wait for all started agents to shutdown
+	wg.Wait()
 
-	close(ch)
 	return msgsPublishedCnt, msgsFailedCnt
 }
 
