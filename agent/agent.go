@@ -174,7 +174,9 @@ func (a *GossipAgent) Connect(remote Agent) error {
 	}
 
 	// do not exit Connect until both nodes are connected
-	connectionHelper.Add(localAddr, remoteAddr)
+	if err := connectionHelper.Add(localAddr, remoteAddr); err != nil {
+		return err
+	}
 	defer connectionHelper.Delete(localAddr, remoteAddr)
 	err = a.Host.Connect(context.Background(), *peer)
 	if err != nil {
