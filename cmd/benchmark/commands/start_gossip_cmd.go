@@ -106,9 +106,9 @@ func (fc *StartGossipCommand) Run(args []string) int {
 		topology = cluster.LinearTopology{}
 	case random:
 		topology = cluster.RandomTopology{
-			Connected: RandomTopologyConnected,
-			MaxPeers:  uint(fc.Params.peeringDegree),
-			Count:     uint(fc.Params.connectionCount),
+			CreateRing: RandomTopologyCreateRing,
+			MaxPeers:   uint(fc.Params.peeringDegree),
+			Count:      uint(fc.Params.connectionCount),
 		}
 	case superCluster:
 		topology = cluster.SuperClusterTopology{

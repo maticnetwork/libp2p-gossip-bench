@@ -117,7 +117,7 @@ type rndToplogyPeer struct {
 	possibleConns []int
 }
 
-func newRndTopologyPeer(portID int, agent agent.Agent, agents map[int]agentContainer) *rndToplogyPeer {
+func newRndTopologyPeer(portID int, agent agent.Agent, agents []agentContainer) *rndToplogyPeer {
 	possible := make([]int, 0, len(agents)-1)
 	for _, agent := range agents {
 		if agent.port != portID {
