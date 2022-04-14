@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"net"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/maticnetwork/libp2p-gossip-bench/agent"
@@ -26,7 +25,7 @@ type Cluster struct {
 
 	latency *lat.LatencyData
 	logger  *zap.Logger
-	agents  map[int]agentContainer // port to ClusterAgent
+	agents  map[int]agentContainer // agents mapped by their listening port
 	port    int
 	config  ClusterConfig
 }
@@ -131,63 +130,14 @@ func (c *Cluster) StopAll() {
 	}
 }
 
-func (c *Cluster) MessageLoop(ctx context.Context, msgRate time.Duration, logDuration, timeout time.Duration) (int64, int64) {
-	msgsPublishedCnt, msgsFailedCnt := int64(0), int64(0)
-	start := time.Now()
+func (c *Cluster) StartMessaging(ctx context.Context, messaging Messaging) (int64, int64) {
+	// filter validators
+	validators := filterValidators(c.agents)
+	fmt.Println("Messaging started")
+	publishedCnt, failedCnt := messaging.Loop(ctx, validators)
+	fmt.Println("Messaging is complete")
 
-	var wg sync.WaitGroup
-	for _, agentCont := range c.agents {
-		if !agentCont.isValidator {
-			continue
-		}
-
-		// wait for each started validator agent
-		wg.Add(1)
-		go func(a agent.Agent) {
-			tm := time.NewTicker(msgRate)
-			defer func() {
-				tm.Stop()
-				wg.Done()
-			}()
-
-			for {
-				// log message, used for stats aggregation,
-				// should be logged only during specified benchmark log duration
-				msgTime := time.Now()
-				shouldAggregate := msgTime.Before(start.Add(logDuration))
-
-				err := a.SendMessage(c.config.MsgSize, shouldAggregate)
-				if err == nil {
-					atomic.AddInt64(&msgsPublishedCnt, 1)
-				} else {
-					atomic.AddInt64(&msgsFailedCnt, 1)
-				}
-				select {
-				case <-ctx.Done():
-					// kill or expiration signal received
-					return
-				case <-tm.C:
-					// log message, used for stats aggregation,
-					// should be logged only during specified benchmark log duration
-					msgTime := time.Now()
-					shouldAggregate := msgTime.Before(start.Add(logDuration))
-
-					err := a.SendMessage(c.config.MsgSize, shouldAggregate)
-					if err == nil {
-						atomic.AddInt64(&msgsPublishedCnt, 1)
-					} else {
-						atomic.AddInt64(&msgsFailedCnt, 1)
-					}
-				}
-			}
-
-		}(agentCont.agent)
-	}
-
-	// wait for all started agents to shutdown
-	wg.Wait()
-
-	return msgsPublishedCnt, msgsFailedCnt
+	return publishedCnt, failedCnt
 }
 
 func (c *Cluster) StartAgents(agentsNumber int, agentConfig agent.GossipConfig) (int, int, time.Duration) {
@@ -215,4 +165,15 @@ func getValue(value, def int) int {
 		return value
 	}
 	return def
+}
+
+func filterValidators(agents map[int]agentContainer) []agentContainer {
+	var result []agentContainer
+	for _, a := range agents {
+		if a.isValidator {
+			result = append(result, a)
+		}
+	}
+
+	return result
 }

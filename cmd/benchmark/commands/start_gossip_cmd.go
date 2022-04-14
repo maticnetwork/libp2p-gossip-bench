@@ -24,6 +24,8 @@ const (
 	linear       = "linear"
 	random       = "random"
 	superCluster = "super-cluster"
+	constantRate = "constant-rate"
+	hotStuff     = "hotstuff"
 )
 
 const (
@@ -36,6 +38,7 @@ type GossipParameters struct {
 	nodeCount          int
 	validatorCount     int
 	topology           string
+	messaging          string
 	messageRate        int
 	benchDuration      int
 	benchDowntime      int
@@ -68,7 +71,8 @@ func (fc *StartGossipCommand) Help() string {
     -size                  - Size of a transmitted message
 	-degree                - Peering degree: count of directly connected peers
 	-non-validator-degree  - Peering degree: count of directly connected non-validator peers (super-cluster only)
-	-connection-count      - Number of connections in random topology`
+	-connection-count      - Number of connections in random topology
+	-messaging			   - Messaging syncronization mechanism (constant rate, hotstuff)`
 }
 
 // Synopsis implements the cli.Command interface
@@ -116,10 +120,36 @@ func (fc *StartGossipCommand) Run(args []string) int {
 		return 1
 	}
 
+	// initialize intervals
+	benchDuration := time.Duration(fc.Params.benchDuration) * time.Second
+	benchDowntime := time.Duration(fc.Params.benchDowntime) * time.Second
+	// timeout for the whole benchmark should encorporate defined downtime
+	benchTimeout := benchDuration + benchDowntime
+
+	var messaging cluster.Messaging
+	switch fc.Params.messaging {
+	case constantRate:
+		msgRate := time.Duration(fc.Params.messageRate) * time.Millisecond
+		messaging = cluster.ConstantRateMessaging{
+			Rate:        msgRate,
+			LogDuration: benchDuration,
+			MessageSize: fc.Params.messageSize,
+		}
+	case hotStuff:
+		messaging = cluster.HotstuffMessaging{
+			LogDuration: benchDuration,
+			MessageSize: fc.Params.messageSize,
+		}
+	default:
+		fc.UI.Info(fmt.Sprintf("Unknown messaging mechanism %s submitted\n", fc.Params.messaging))
+		return 1
+	}
+
 	fc.UI.Info("Starting libp2p benchmark ...")
 	fc.UI.Info(fmt.Sprintf("Node count: %v", fc.Params.nodeCount))
 	fc.UI.Info(fmt.Sprintf("Validator count: %v", fc.Params.validatorCount))
 	fc.UI.Info(fmt.Sprintf("Chosen topology: %s", fc.Params.topology))
+	fc.UI.Info(fmt.Sprintf("Chosen message mechanism: %s", fc.Params.messaging))
 	fc.UI.Info(fmt.Sprintf("Message rate (miliseconds): %v", fc.Params.messageRate))
 	fc.UI.Info(fmt.Sprintf("Benchmark duration (seconds): %v", fc.Params.benchDuration))
 	fc.UI.Info(fmt.Sprintf("Benchmark downtime duration (seconds): %v", fc.Params.benchDowntime))
@@ -134,7 +164,7 @@ func (fc *StartGossipCommand) Run(args []string) int {
 
 	fc.UI.Info("Starting benchmark...")
 
-	StartGossipBench(ctx, fc.Params, topology)
+	StartGossipBench(ctx, fc.Params, topology, messaging, benchTimeout)
 
 	fc.UI.Info("Benchmark executed")
 
@@ -147,6 +177,7 @@ func (fc *StartGossipCommand) NewFlagSet() *flag.FlagSet {
 	flagSet.IntVar(&fc.Params.nodeCount, "nodes", 10, "Count of nodes")
 	flagSet.IntVar(&fc.Params.validatorCount, "validators", 2, "Count of validators")
 	flagSet.StringVar(&fc.Params.topology, "topology", "linear", fmt.Sprintf("Topology of the nodes (%s, %s, %s)", linear, random, superCluster))
+	flagSet.StringVar(&fc.Params.messaging, "messaging", "constant-rate", fmt.Sprintf("Messaging syncronization mechanism (%s, %s)", constantRate, hotStuff))
 	flagSet.IntVar(&fc.Params.messageRate, "rate", 900, "Message rate (in milliseconds) of a node")
 	flagSet.IntVar(&fc.Params.benchDuration, "duration", 40, "Duration of a benchmark in seconds")
 	flagSet.IntVar(&fc.Params.benchDowntime, "downtime", 10, "Period of time in the end of benchmark for which logs will be discarded")
@@ -159,7 +190,7 @@ func (fc *StartGossipCommand) NewFlagSet() *flag.FlagSet {
 	return flagSet
 }
 
-func StartGossipBench(ctx context.Context, params GossipParameters, topology cluster.Topology) {
+func StartGossipBench(ctx context.Context, params GossipParameters, topology cluster.Topology, messaging cluster.Messaging, timeout time.Duration) {
 	// remove file if exists
 	// logger configuration
 	cfg := zap.NewProductionConfig()
@@ -176,13 +207,7 @@ func StartGossipBench(ctx context.Context, params GossipParameters, topology clu
 		panic(err)
 	}
 
-	// initialize intervals
-	msgRate := time.Duration(params.messageRate) * time.Millisecond
-	benchDuration := time.Duration(params.benchDuration) * time.Second
-	benchDowntime := time.Duration(params.benchDowntime) * time.Second
-	// timeout for the whole benchmark should encorporate defined downtime
-	benchTimeout := benchDuration + benchDowntime
-	timeoutCtx, cancel := context.WithTimeout(ctx, benchTimeout)
+	timeoutCtx, cancel := context.WithTimeout(ctx, timeout)
 
 	defer func() {
 		// flush logger buffer
@@ -195,6 +220,7 @@ func StartGossipBench(ctx context.Context, params GossipParameters, topology clu
 		zap.Int("agentsCount", params.nodeCount),
 		zap.Int("validatorsCount", params.validatorCount),
 		zap.String("topology", fmt.Sprintf("%T", topology)),
+		zap.String("messaging", fmt.Sprintf("%T", messaging)),
 		zap.Int("benchDuration", params.benchDuration),
 		zap.Int("msgRate", params.messageRate),
 		zap.Int("peeringDegree", params.peeringDegree),
@@ -221,9 +247,7 @@ func StartGossipBench(ctx context.Context, params GossipParameters, topology clu
 	fmt.Printf("Agents added: %d. Failed agents: %v, Elapsed time: %v\n", agentsAdded, agentsFailed, timeAdded)
 	cluster.ConnectAgents(topology)
 
-	fmt.Println("Gossip started")
-
-	msgsPublishedCnt, msgsFailedCnt := cluster.MessageLoop(timeoutCtx, msgRate, benchDuration, benchTimeout)
+	msgsPublishedCnt, msgsFailedCnt := cluster.StartMessaging(timeoutCtx, messaging)
 	fmt.Printf("Published %d messages \n", msgsPublishedCnt)
 	fmt.Printf("Failed %d messages \n", msgsFailedCnt)
 }
