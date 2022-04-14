@@ -22,7 +22,7 @@ import (
 
 var byteOrder = binary.BigEndian
 
-var connectionHelper agentConnectionHelper = newAgentConnectionHelper()
+var connectionHelper = newAgentConnectionHelper()
 
 type Agent interface {
 	Listen(ipString string, port int) error
@@ -174,6 +174,7 @@ func (a *GossipAgent) Listen(ipString string, port int) error {
 				zap.String("msgID", data.MessageID.String()),
 				zap.Bool("aggregateStats", data.IsUseful),
 				zap.String("from", raw.ReceivedFrom.Pretty()),
+				zap.Bool("isValidator", a.IsValidator()),
 			)
 		}
 	}()
