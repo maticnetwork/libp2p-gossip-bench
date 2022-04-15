@@ -47,10 +47,10 @@ func NewCluster(logger *zap.Logger, latency *lat.LatencyData, c ClusterConfig) *
 }
 
 func (c *Cluster) AddAgents(config agent.AgentConfig, numOfAgents int) {
-	for i := 1; i <= numOfAgents; i++ {
+	for i := 0; i < numOfAgents; i++ {
 		city := c.latency.GetRandomCity()
 		isValidator := i < c.config.ValidatorCount
-		c.agents[i] = agent.NewAgent(c.logger, i, city, isValidator, config)
+		c.agents[c.AssignPort(i)] = agent.NewAgent(c.logger, i, city, isValidator, config)
 	}
 }
 
@@ -125,10 +125,10 @@ func (c *Cluster) StartAgents() (int, int, time.Duration) {
 
 	agentsNumber := len(c.agents)
 	started, failed, time := utils.MultiRoutineRunner(agentsNumber, itemsPerRoutine, maxRoutines, func(index int) error {
-		agent := c.GetAgent(index)
-		port := c.startingPort + index
+		port := c.AssignPort(index)
+		agent := c.GetAgent(port)
 		if err := agent.Listen(c.config.Ip, port); err != nil {
-			c.RemoveAgent(index)
+			c.RemoveAgent(port)
 			return fmt.Errorf("can not start agent for port %d, err: %v", port, err)
 		}
 		return nil
@@ -139,6 +139,10 @@ func (c *Cluster) StartAgents() (int, int, time.Duration) {
 
 func (c *Cluster) ConnectAgents(topology Topology) {
 	topology.MakeConnections(c.agents)
+}
+
+func (c *Cluster) AssignPort(increment int) int {
+	return c.startingPort + increment
 }
 
 func getValue(value, def int) int {
