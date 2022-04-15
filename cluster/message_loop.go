@@ -45,9 +45,9 @@ func (c ConstantRateMessaging) Loop(ctx context.Context, agents []agent.Agent) (
 					// should be logged only during specified benchmark log duration
 					err := a.SendMessage(c.MessageSize, shouldAggregate(start, c.LogDuration))
 					if err != nil {
-						atomic.AddInt64(&publishedCnt, 1)
-					} else {
 						atomic.AddInt64(&failedCnt, 1)
+					} else {
+						atomic.AddInt64(&publishedCnt, 1)
 					}
 				}
 			}
@@ -96,9 +96,9 @@ func (h HotstuffMessaging) Loop(ctx context.Context, agents []agent.Agent) (int6
 				// should be logged only during specified benchmark log duration
 				err := a.SendMessage(h.MessageSize, shouldAggregate(start, h.LogDuration))
 				if err != nil {
-					atomic.AddInt64(&publishedCnt, 1)
-				} else {
 					atomic.AddInt64(&failedCnt, 1)
+				} else {
+					atomic.AddInt64(&publishedCnt, 1)
 				}
 			}
 		}
@@ -118,9 +118,9 @@ func (h HotstuffMessaging) Loop(ctx context.Context, agents []agent.Agent) (int6
 				case <-restChan:
 					err := a.SendMessage(h.MessageSize, shouldAggregate(start, h.LogDuration))
 					if err != nil {
-						atomic.AddInt64(&publishedCnt, 1)
-					} else {
 						atomic.AddInt64(&failedCnt, 1)
+					} else {
+						atomic.AddInt64(&publishedCnt, 1)
 					}
 				}
 			}
