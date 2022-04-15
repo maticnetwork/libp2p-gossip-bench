@@ -117,8 +117,8 @@ func RunStats(filePath string, maxDurationInSeconds int) {
 func addStatistics(logLine Log, result map[string]stats) {
 	if logLine.Direction == "sent" {
 		sentTime := logLine.Time
-		if r, ok := result[logLine.MsgID]; ok {
-			r.msgSentTime = sentTime
+		if _, ok := result[logLine.MsgID]; ok {
+			panic("Error, sent time already exists.")
 		} else {
 			m := make(map[time.Duration]int)
 			result[logLine.MsgID] = stats{
@@ -130,17 +130,35 @@ func addStatistics(logLine Log, result map[string]stats) {
 	} else if logLine.Direction == "received" {
 		receivedTime := logLine.Time
 		if r, ok := result[logLine.MsgID]; ok {
-			total := r.totalNodesReceivedMsg
-			r.totalNodesReceivedMsg = total + 1
-			duration := receivedTime.Sub(r.msgSentTime)
+			// increment total nodes that received message
+			totalNodesReceivedMsg := r.totalNodesReceivedMsg
+			r.totalNodesReceivedMsg = totalNodesReceivedMsg + 1
+			// update last received time
 			if r.lastMsgReceivedTime.Before(receivedTime) {
 				r.lastMsgReceivedTime = receivedTime
 			}
+
+			// sum durations for all nodes
+			duration := receivedTime.Sub(r.msgSentTime)
 			r.sumDurations = r.sumDurations + duration
 			result[logLine.MsgID] = r
-			for _, d := range durations {
-				if duration <= d {
-					incrementNodesCount(r.durationStatistics, d)
+			// increment statistics if received node is validator
+			if logLine.IsValidator {
+				// update last received time for validator
+				if r.lastValidatorReceivedMsg.Before(receivedTime) {
+					r.lastValidatorReceivedMsg = receivedTime
+				}
+				// sum durations only for validators
+				valDuration := receivedTime.Sub(r.msgSentTime)
+				r.sumValidatorsDurations = r.sumValidatorsDurations + valDuration
+				// increment validator nodes that received message
+				totalValidatorsReceivedMsg := r.totalValidatorNodesReceivedMsg
+				r.totalValidatorNodesReceivedMsg = totalValidatorsReceivedMsg + 1
+				result[logLine.MsgID] = r
+				for _, d := range durations {
+					if valDuration <= d {
+						incrementNodesCount(r.durationStatistics, d)
+					}
 				}
 			}
 		}
@@ -160,6 +178,7 @@ type Header struct {
 
 type Log struct {
 	MsgID          string    `json:"msgID"`
+	IsValidator    bool      `json:"isValidator"`
 	AggregateStats bool      `json:"aggregateStats"`
 	Direction      string    `json:"direction"`
 	Msg            string    `json:"msg"`
@@ -170,12 +189,15 @@ type Log struct {
 }
 
 type stats struct {
-	totalNodesReceivedMsg int
-	msgID                 string
-	msgSentTime           time.Time
-	lastMsgReceivedTime   time.Time
-	durationStatistics    map[time.Duration]int
-	sumDurations          time.Duration
+	totalNodesReceivedMsg          int
+	totalValidatorNodesReceivedMsg int
+	msgID                          string
+	msgSentTime                    time.Time
+	lastMsgReceivedTime            time.Time
+	lastValidatorReceivedMsg       time.Time
+	durationStatistics             map[time.Duration]int
+	sumDurations                   time.Duration
+	sumValidatorsDurations         time.Duration
 }
 
 func incrementNodesCount(durationStatistics map[time.Duration]int, duration time.Duration) {
@@ -199,13 +221,14 @@ func printStats(result map[string]stats, header Header) {
 	}
 	fmt.Printf("TotalAgents: %v\nTotalValidators: %v\n", header.AgentsCount, header.ValidatorsCount)
 	for _, stats := range result {
-		maxDuration := stats.lastMsgReceivedTime.Sub(stats.msgSentTime)
+		maxDuration := stats.lastValidatorReceivedMsg.Sub(stats.msgSentTime)
 		percentageReceivedMessage := float64(stats.totalNodesReceivedMsg*100) / float64(header.AgentsCount)
 		percentageNotReceivedMessage := 100 - percentageReceivedMessage
 		totalNodesNotReceivedMsg := header.AgentsCount - stats.totalNodesReceivedMsg
 		timeSinceMsgSent := stats.lastMsgReceivedTime.Sub(stats.msgSentTime)
+		lastValidatorReceivedSinceMsgSent := stats.lastValidatorReceivedMsg.Sub(stats.msgSentTime)
 		fmt.Println("=== Statistics ===")
-		fmt.Printf("MessageID: %s\nTotalNodesReceivedMsg: %d (%.2f%%)\nTotalNodesNotReceivedMessage: %d (%.2f%%)\nMsgSentTime: %s\nLastMsgReceivedTime: %s\nLastNodeRecivedMsgAfter: %s\n",
+		fmt.Printf("MessageID: %s\nTotalNodesReceivedMsg: %d (%.2f%%)\nTotalNodesNotReceivedMsg: %d (%.2f%%)\nMsgSentTime: %s\nLastNodeReceivedMsgTime: %s\nLastNodeRecivedMsgAfter: %s\nLastValidatorReceivedMsg: %s\nLastValidatorRecivedMsgAfter: %s\n",
 			stats.msgID,
 			stats.totalNodesReceivedMsg,
 			percentageReceivedMessage,
@@ -213,14 +236,18 @@ func printStats(result map[string]stats, header Header) {
 			percentageNotReceivedMessage,
 			stats.msgSentTime,
 			stats.lastMsgReceivedTime,
-			timeSinceMsgSent)
+			timeSinceMsgSent,
+			stats.lastValidatorReceivedMsg,
+			lastValidatorReceivedSinceMsgSent,
+		)
 		for _, d := range durations {
 			if d <= maxDuration {
-				fmt.Printf("Threshold: <= %s, ReceivedMsgNodesCount: %d/%d (%.2f%%)\n",
-					d, stats.durationStatistics[d], header.AgentsCount, float64(stats.durationStatistics[d])/float64(header.AgentsCount)*100)
+				fmt.Printf("Threshold: <= %s, ValidatorsNodesReceivedMsg: %d/%d (%.2f%%)\n",
+					d, stats.durationStatistics[d], header.ValidatorsCount, float64(stats.durationStatistics[d])/float64(header.ValidatorsCount)*100)
 			}
 		}
-		fmt.Printf("Average received message time for nodes: %d of total %d is %.2f\n", stats.totalNodesReceivedMsg, header.AgentsCount, stats.sumDurations.Seconds()/float64(stats.totalNodesReceivedMsg))
+		fmt.Printf("Average received message time for all nodes: %d of total %d is %.2f\n", stats.totalNodesReceivedMsg, header.AgentsCount, stats.sumDurations.Seconds()/float64(stats.totalNodesReceivedMsg))
+		fmt.Printf("Average received message time for validator nodes: %d of total %d is %.2f\n", stats.totalValidatorNodesReceivedMsg, header.ValidatorsCount, stats.sumValidatorsDurations.Seconds()/float64(stats.totalValidatorNodesReceivedMsg))
 	}
 }
 
