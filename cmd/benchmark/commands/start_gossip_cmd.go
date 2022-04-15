@@ -232,7 +232,8 @@ func StartGossipBench(ctx context.Context, params GossipParameters, topology clu
 	fmt.Println("Start adding agents: ", params.nodeCount)
 
 	// start agents in cluster
-	acfg := agent.DefaultGossipConfig()
+	acfg := &agent.GossipConfig{}
+	acfg.SetDefaults()
 	acfg.Transport = transportManager.Transport()
 	cluster.AddAgents(acfg, params.nodeCount)
 	agentsStarted, agentsFailed, timeAdded := cluster.StartAgents()

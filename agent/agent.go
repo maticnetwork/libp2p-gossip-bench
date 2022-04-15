@@ -100,20 +100,6 @@ func (c *GossipConfig) SetDefaults() {
 	c.PubsubQueueSize = 600
 }
 
-func DefaultGossipConfig() *GossipConfig {
-	return &GossipConfig{
-		GossipSubD:                 8,
-		GossipSubDlo:               6,
-		GossipSubDhi:               12,
-		GossipSubMcacheLen:         6,
-		GossipSubMcacheGossip:      3,
-		GossipSubSeenTTL:           550,
-		GossipSubFanoutTTL:         60000000000,
-		GossipSubHeartbeatInterval: 700 * time.Millisecond,
-		PubsubQueueSize:            600,
-	}
-}
-
 // gossipsub.
 // topic for pubsub
 const topicName = "Topic"
