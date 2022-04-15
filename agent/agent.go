@@ -86,13 +86,6 @@ type packet struct {
 	IsUseful  bool
 }
 
-func NewAgent(logger *zap.Logger, config *GossipConfig) *GossipAgent {
-	return &GossipAgent{
-		Logger: logger,
-		Config: config,
-	}
-}
-
 func (a *GossipAgent) Listen(ipString string, port int) error {
 	listenAddr, err := ma.NewMultiaddr(fmt.Sprintf("/ip4/%s/tcp/%d", ipString, port))
 	if err != nil {

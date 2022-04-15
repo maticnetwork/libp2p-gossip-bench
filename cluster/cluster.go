@@ -147,7 +147,7 @@ func (c *Cluster) StartAgents(agentsNumber int, agentConfig agent.GossipConfig) 
 	)
 	added, failed, time := utils.MultiRoutineRunner(agentsNumber, itemsPerRoutine, maxRoutines, func(index int) error {
 		// configure agents
-		agent := agent.NewAgent(c.logger, &agentConfig)
+		agent := &agent.GossipAgent{Logger: c.logger, Config: &agentConfig}
 		city := c.latency.GetRandomCity()
 		_, err := c.AddAgent(agent, city, index < c.config.ValidatorCount)
 		return err
