@@ -31,13 +31,38 @@ type Agent interface {
 	SendMessage(size int, isUseful bool) error
 	Stop() error
 	NumPeers() int
+	GetCity() string
+	GetPort() int
+	IsValidator() bool
+}
+
+type AgentConfig interface {
+	SetDefaults()
+}
+
+func NewAgent(logger *zap.Logger, port int, city string, isValidator bool, config AgentConfig) Agent {
+	switch v := config.(type) {
+	case *GossipConfig:
+		return &GossipAgent{
+			Logger:    logger,
+			Config:    v,
+			City:      city,
+			Port:      port,
+			Validator: isValidator,
+		}
+	default:
+		panic("I don't know that Agent Config")
+	}
 }
 
 type GossipAgent struct {
-	Host   host.Host
-	Logger *zap.Logger
-	Config *GossipConfig
-	Topic  *pubsub.Topic
+	City      string
+	Port      int
+	Validator bool
+	Host      host.Host
+	Logger    *zap.Logger
+	Config    *GossipConfig
+	Topic     *pubsub.Topic
 }
 
 type GossipConfig struct {
@@ -61,6 +86,18 @@ type GossipConfig struct {
 
 	// pubsubQueueSize is the size that we assign to our validation queue and outbound message queue for
 	PubsubQueueSize int
+}
+
+func (c *GossipConfig) SetDefaults() {
+	c.GossipSubD = 8
+	c.GossipSubDlo = 6
+	c.GossipSubDhi = 12
+	c.GossipSubMcacheLen = 6
+	c.GossipSubMcacheGossip = 3
+	c.GossipSubSeenTTL = 550
+	c.GossipSubFanoutTTL = 60000000000
+	c.GossipSubHeartbeatInterval = 700 * time.Millisecond
+	c.PubsubQueueSize = 600
 }
 
 func DefaultGossipConfig() *GossipConfig {
@@ -224,6 +261,18 @@ func (a *GossipAgent) Addr() ma.Multiaddr {
 	id := fmt.Sprintf("/ip4/%s/tcp/%s/p2p/%s", ip, port, a.Host.ID())
 	listenAddr, _ := ma.NewMultiaddr(id)
 	return listenAddr
+}
+
+func (a *GossipAgent) GetCity() string {
+	return a.City
+}
+
+func (a *GossipAgent) GetPort() int {
+	return a.Port
+}
+
+func (a *GossipAgent) IsValidator() bool {
+	return a.Validator
 }
 
 // creates a custom gossipsub parameter set.

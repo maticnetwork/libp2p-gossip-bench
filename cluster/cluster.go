@@ -13,21 +13,14 @@ import (
 	"go.uber.org/zap"
 )
 
-type agentContainer struct {
-	agent       agent.Agent
-	city        string
-	port        int
-	isValidator bool
-}
-
 type Cluster struct {
 	lock sync.RWMutex
 
-	latency *lat.LatencyData
-	logger  *zap.Logger
-	agents  map[int]agentContainer // agents mapped by their listening port
-	port    int
-	config  ClusterConfig
+	latency      *lat.LatencyData
+	logger       *zap.Logger
+	agents       map[int]agent.Agent // agents mapped by their listening port
+	startingPort int
+	config       ClusterConfig
 }
 
 type ClusterConfig struct {
@@ -44,51 +37,31 @@ const defaultMTU = 1500
 
 func NewCluster(logger *zap.Logger, latency *lat.LatencyData, c ClusterConfig) *Cluster {
 	return &Cluster{
-		lock:    sync.RWMutex{},
-		agents:  make(map[int]agentContainer),
-		latency: latency,
-		logger:  logger,
-		config:  c,
-		port:    c.StartingPort,
+		lock:         sync.RWMutex{},
+		agents:       make(map[int]agent.Agent),
+		latency:      latency,
+		logger:       logger,
+		config:       c,
+		startingPort: c.StartingPort,
 	}
 }
 
-func (c *Cluster) AddAgent(agent agent.Agent, city string, isValidator bool) (int, error) {
-	// we do not want to execute whole agent.listen in lock, thats is why we have locks at two places
-	c.lock.Lock()
-	c.port++
-	listenPort := c.port
-	c.lock.Unlock()
-
-	// trying to start agent on next available port...
-	err := agent.Listen(c.config.Ip, listenPort)
-	if err != nil {
-		return 0, fmt.Errorf("can not start agent for port %d, err: %v", listenPort, err)
+func (c *Cluster) AddAgents(config agent.AgentConfig, numOfAgents int) {
+	for i := 1; i <= numOfAgents; i++ {
+		city := c.latency.GetRandomCity()
+		isValidator := i < c.config.ValidatorCount
+		c.agents[i] = agent.NewAgent(c.logger, i, city, isValidator, config)
 	}
-
-	//... if agent is sucessfully started update map
-	c.lock.Lock()
-	defer c.lock.Unlock()
-	c.agents[listenPort] = agentContainer{agent: agent, city: city, port: listenPort, isValidator: isValidator}
-	return listenPort, nil
 }
 
 func (c *Cluster) GetAgent(id int) agent.Agent {
-	return c.GetAgentContainer(id).agent
-}
-
-func (c *Cluster) GetAgentCity(id int) string {
-	return c.GetAgentContainer(id).city
-}
-
-func (c *Cluster) GetAgentContainer(id int) agentContainer {
 	c.lock.RLock()
 	defer c.lock.RUnlock()
-	agentCont, exists := c.agents[id]
+	agent, exists := c.agents[id]
 	if !exists {
 		panic(fmt.Sprintf("Agent does not exist: %d", id))
 	}
-	return agentCont
+	return agent
 }
 
 func (c *Cluster) RemoveAgent(id int) error {
@@ -102,6 +75,10 @@ func (c *Cluster) RemoveAgent(id int) error {
 	defer c.lock.Unlock()
 	delete(c.agents, id)
 	return nil
+}
+
+func (c *Cluster) GetAgentCity(id int) string {
+	return c.GetAgent(id).GetCity()
 }
 
 func (c *Cluster) CreateConn(baseConn net.Conn, leftPortID, rightPortID int) (net.Conn, error) {
@@ -125,8 +102,8 @@ func (c *Cluster) Start(portID int) error {
 }
 
 func (c *Cluster) StopAll() {
-	for _, cont := range c.agents {
-		cont.agent.Stop()
+	for _, agent := range c.agents {
+		agent.Stop()
 	}
 }
 
@@ -140,20 +117,24 @@ func (c *Cluster) StartMessaging(ctx context.Context, messaging Messaging) (int6
 	return publishedCnt, failedCnt
 }
 
-func (c *Cluster) StartAgents(agentsNumber int, agentConfig agent.GossipConfig) (int, int, time.Duration) {
+func (c *Cluster) StartAgents() (int, int, time.Duration) {
 	const (
 		maxRoutines     = 1000
 		itemsPerRoutine = 1
 	)
-	added, failed, time := utils.MultiRoutineRunner(agentsNumber, itemsPerRoutine, maxRoutines, func(index int) error {
-		// configure agents
-		agent := &agent.GossipAgent{Logger: c.logger, Config: &agentConfig}
-		city := c.latency.GetRandomCity()
-		_, err := c.AddAgent(agent, city, index < c.config.ValidatorCount)
-		return err
+
+	agentsNumber := len(c.agents)
+	started, failed, time := utils.MultiRoutineRunner(agentsNumber, itemsPerRoutine, maxRoutines, func(index int) error {
+		agent := c.GetAgent(index)
+		port := c.startingPort + index
+		if err := agent.Listen(c.config.Ip, port); err != nil {
+			c.RemoveAgent(index)
+			return fmt.Errorf("can not start agent for port %d, err: %v", port, err)
+		}
+		return nil
 	})
 
-	return added, failed, time
+	return started, failed, time
 }
 
 func (c *Cluster) ConnectAgents(topology Topology) {
@@ -167,10 +148,10 @@ func getValue(value, def int) int {
 	return def
 }
 
-func filterValidators(agents map[int]agentContainer) []agentContainer {
-	var result []agentContainer
+func filterValidators(agents map[int]agent.Agent) []agent.Agent {
+	var result []agent.Agent
 	for _, a := range agents {
-		if a.isValidator {
+		if a.IsValidator() {
 			result = append(result, a)
 		}
 	}

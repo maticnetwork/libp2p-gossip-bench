@@ -207,15 +207,6 @@ func StartGossipBench(ctx context.Context, params GossipParameters, topology clu
 		panic(err)
 	}
 
-	timeoutCtx, cancel := context.WithTimeout(ctx, timeout)
-
-	defer func() {
-		// flush logger buffer
-		defer logger.Sync()
-		// cleanup for the timeout context
-		cancel()
-	}()
-
 	logger.Info("Starting gossip benchmark",
 		zap.Int("agentsCount", params.nodeCount),
 		zap.Int("validatorsCount", params.validatorCount),
@@ -243,9 +234,18 @@ func StartGossipBench(ctx context.Context, params GossipParameters, topology clu
 	// start agents in cluster
 	acfg := agent.DefaultGossipConfig()
 	acfg.Transport = transportManager.Transport()
-	agentsAdded, agentsFailed, timeAdded := cluster.StartAgents(params.nodeCount, *acfg)
-	fmt.Printf("Agents added: %d. Failed agents: %v, Elapsed time: %v\n", agentsAdded, agentsFailed, timeAdded)
+	cluster.AddAgents(acfg, params.nodeCount)
+	agentsStarted, agentsFailed, timeAdded := cluster.StartAgents()
+	fmt.Printf("Agents added: %d. Failed agents: %v, Elapsed time: %v\n", agentsStarted, agentsFailed, timeAdded)
 	cluster.ConnectAgents(topology)
+
+	timeoutCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer func() {
+		// flush logger buffer
+		defer logger.Sync()
+		// cleanup for the timeout context
+		cancel()
+	}()
 
 	msgsPublishedCnt, msgsFailedCnt := cluster.StartMessaging(timeoutCtx, messaging)
 	fmt.Printf("Published %d messages \n", msgsPublishedCnt)

@@ -11,7 +11,7 @@ import (
 )
 
 type Messaging interface {
-	Loop(ctx context.Context, agents []agentContainer) (publishedCnt, failedCnt int64)
+	Loop(ctx context.Context, agents []agent.Agent) (publishedCnt, failedCnt int64)
 }
 
 type ConstantRateMessaging struct {
@@ -20,7 +20,7 @@ type ConstantRateMessaging struct {
 	MessageSize int           // size of sent message in bytes
 }
 
-func (c ConstantRateMessaging) Loop(ctx context.Context, agents []agentContainer) (int64, int64) {
+func (c ConstantRateMessaging) Loop(ctx context.Context, agents []agent.Agent) (int64, int64) {
 	var publishedCnt, failedCnt int64
 	var wg sync.WaitGroup
 	start := time.Now()
@@ -44,14 +44,14 @@ func (c ConstantRateMessaging) Loop(ctx context.Context, agents []agentContainer
 					// log message, used for stats aggregation,
 					// should be logged only during specified benchmark log duration
 					err := a.SendMessage(c.MessageSize, shouldAggregate(start, c.LogDuration))
-					if err == nil {
+					if err != nil {
 						atomic.AddInt64(&publishedCnt, 1)
 					} else {
 						atomic.AddInt64(&failedCnt, 1)
 					}
 				}
 			}
-		}(a.agent)
+		}(a)
 	}
 
 	// wait for all started agents to shutdown
@@ -65,7 +65,7 @@ type HotstuffMessaging struct {
 	MessageSize int           // size of sent message in bytes
 }
 
-func (h HotstuffMessaging) Loop(ctx context.Context, agents []agentContainer) (int64, int64) {
+func (h HotstuffMessaging) Loop(ctx context.Context, agents []agent.Agent) (int64, int64) {
 	var publishedCnt, failedCnt int64
 	var wg sync.WaitGroup
 	start := time.Now()
@@ -95,7 +95,7 @@ func (h HotstuffMessaging) Loop(ctx context.Context, agents []agentContainer) (i
 				// log message, used for stats aggregation,
 				// should be logged only during specified benchmark log duration
 				err := a.SendMessage(h.MessageSize, shouldAggregate(start, h.LogDuration))
-				if err == nil {
+				if err != nil {
 					atomic.AddInt64(&publishedCnt, 1)
 				} else {
 					atomic.AddInt64(&failedCnt, 1)
@@ -103,7 +103,7 @@ func (h HotstuffMessaging) Loop(ctx context.Context, agents []agentContainer) (i
 			}
 		}
 
-	}(leader.agent)
+	}(leader)
 
 	// rest of the agents send their messages on even seconds
 	for _, a := range rest {
@@ -117,14 +117,14 @@ func (h HotstuffMessaging) Loop(ctx context.Context, agents []agentContainer) (i
 					return
 				case <-restChan:
 					err := a.SendMessage(h.MessageSize, shouldAggregate(start, h.LogDuration))
-					if err == nil {
+					if err != nil {
 						atomic.AddInt64(&publishedCnt, 1)
 					} else {
 						atomic.AddInt64(&failedCnt, 1)
 					}
 				}
 			}
-		}(a.agent)
+		}(a)
 	}
 
 	// wait for all started agents to shutdown

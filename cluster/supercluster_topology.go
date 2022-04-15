@@ -2,6 +2,8 @@ package cluster
 
 import (
 	"fmt"
+
+	"github.com/maticnetwork/libp2p-gossip-bench/agent"
 )
 
 // Each non validator is connected to at least one validator
@@ -11,12 +13,12 @@ type SuperClusterTopology struct {
 }
 
 // Creates supercluster topology connections between peers
-func (t SuperClusterTopology) MakeConnections(agents map[int]agentContainer) {
+func (t SuperClusterTopology) MakeConnections(agents map[int]agent.Agent) {
 	const connectionsNumber = 1000000
-	validators, nonValidators := make([]agentContainer, 0), make([]agentContainer, 0)
+	validators, nonValidators := make([]agent.Agent, 0), make([]agent.Agent, 0)
 	// create two list - one for validators and one for non validators
 	for _, ac := range agents {
-		if ac.isValidator {
+		if ac.IsValidator() {
 			validators = append(validators, ac)
 		} else {
 			nonValidators = append(nonValidators, ac)
@@ -44,7 +46,7 @@ func (t SuperClusterTopology) MakeConnections(agents map[int]agentContainer) {
 		connections = make(connectionsList, 0)
 		for i, ac := range nonValidators {
 			j := i % len(validators)
-			connections.Add(ac.agent, validators[j].agent)
+			connections.Add(ac, validators[j])
 		}
 		success, failed, elapsed = connections.ConnectAll()
 		fmt.Printf("Connecting non validators to validators finished. Success: %d, failed: %d. Elapsed: %v\n", success, failed, elapsed)
