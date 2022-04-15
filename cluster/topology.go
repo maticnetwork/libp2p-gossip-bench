@@ -1,4 +1,4 @@
-package agent
+package cluster
 
 import (
 	"fmt"
@@ -6,15 +6,17 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/maticnetwork/libp2p-gossip-bench/agent"
 )
 
 type Topology interface {
-	MakeConnections(agents map[int]agentContainer)
+	MakeConnections(agents map[int]agent.Agent)
 }
 
 type LinearTopology struct{}
 
-func (t LinearTopology) MakeConnections(agents map[int]agentContainer) {
+func (t LinearTopology) MakeConnections(agents map[int]agent.Agent) {
 	keys := make([]int, 0)
 	for k := range agents {
 		keys = append(keys, k)
@@ -31,8 +33,8 @@ func (t LinearTopology) MakeConnections(agents map[int]agentContainer) {
 		go func(i int) {
 			defer wg.Done()
 
-			source := agents[keys[i]].agent
-			sink := agents[keys[i+1]].agent
+			source := agents[keys[i]]
+			sink := agents[keys[i+1]]
 			err := source.Connect(sink)
 			if err != nil {
 				fmt.Println("Could not connect peers ", keys[i], " ", keys[i+1], " ", err)

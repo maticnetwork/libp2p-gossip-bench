@@ -31,13 +31,38 @@ type Agent interface {
 	SendMessage(size int, isUseful bool) error
 	Stop() error
 	NumPeers() int
+	GetCity() string
+	GetPort() int
+	IsValidator() bool
+}
+
+type AgentConfig interface {
+	SetDefaults()
+}
+
+func NewAgent(logger *zap.Logger, port int, city string, isValidator bool, config AgentConfig) Agent {
+	switch v := config.(type) {
+	case *GossipConfig:
+		return &GossipAgent{
+			Logger:    logger,
+			Config:    v,
+			City:      city,
+			Port:      port,
+			Validator: isValidator,
+		}
+	default:
+		panic("I don't know that Agent Config")
+	}
 }
 
 type GossipAgent struct {
-	Host   host.Host
-	Logger *zap.Logger
-	Config *GossipConfig
-	Topic  *pubsub.Topic
+	City      string
+	Port      int
+	Validator bool
+	Host      host.Host
+	Logger    *zap.Logger
+	Config    *GossipConfig
+	Topic     *pubsub.Topic
 }
 
 type GossipConfig struct {
@@ -63,18 +88,16 @@ type GossipConfig struct {
 	PubsubQueueSize int
 }
 
-func DefaultGossipConfig() *GossipConfig {
-	return &GossipConfig{
-		GossipSubD:                 8,
-		GossipSubDlo:               6,
-		GossipSubDhi:               12,
-		GossipSubMcacheLen:         6,
-		GossipSubMcacheGossip:      3,
-		GossipSubSeenTTL:           550,
-		GossipSubFanoutTTL:         60000000000,
-		GossipSubHeartbeatInterval: 700 * time.Millisecond,
-		PubsubQueueSize:            600,
-	}
+func (c *GossipConfig) SetDefaults() {
+	c.GossipSubD = 8
+	c.GossipSubDlo = 6
+	c.GossipSubDhi = 12
+	c.GossipSubMcacheLen = 6
+	c.GossipSubMcacheGossip = 3
+	c.GossipSubSeenTTL = 550
+	c.GossipSubFanoutTTL = 60000000000
+	c.GossipSubHeartbeatInterval = 700 * time.Millisecond
+	c.PubsubQueueSize = 600
 }
 
 // gossipsub.
@@ -84,13 +107,6 @@ const topicName = "Topic"
 type packet struct {
 	MessageID uuid.UUID
 	IsUseful  bool
-}
-
-func NewAgent(logger *zap.Logger, config *GossipConfig) *GossipAgent {
-	return &GossipAgent{
-		Logger: logger,
-		Config: config,
-	}
 }
 
 func (a *GossipAgent) Listen(ipString string, port int) error {
@@ -231,6 +247,18 @@ func (a *GossipAgent) Addr() ma.Multiaddr {
 	id := fmt.Sprintf("/ip4/%s/tcp/%s/p2p/%s", ip, port, a.Host.ID())
 	listenAddr, _ := ma.NewMultiaddr(id)
 	return listenAddr
+}
+
+func (a *GossipAgent) GetCity() string {
+	return a.City
+}
+
+func (a *GossipAgent) GetPort() int {
+	return a.Port
+}
+
+func (a *GossipAgent) IsValidator() bool {
+	return a.Validator
 }
 
 // creates a custom gossipsub parameter set.

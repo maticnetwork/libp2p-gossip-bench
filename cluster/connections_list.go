@@ -1,8 +1,9 @@
-package agent
+package cluster
 
 import (
 	"time"
 
+	"github.com/maticnetwork/libp2p-gossip-bench/agent"
 	"github.com/maticnetwork/libp2p-gossip-bench/utils"
 )
 
@@ -13,15 +14,15 @@ const (
 
 // Holds list of all connection pairs (source and destination ClusterAgent)
 type connectionsList []struct {
-	src  Agent
-	dest Agent
+	src  agent.Agent
+	dest agent.Agent
 }
 
 // Add new connection pair to the list
-func (cl *connectionsList) Add(src, dest Agent) {
+func (cl *connectionsList) Add(src, dest agent.Agent) {
 	*cl = append(*cl, struct {
-		src  Agent
-		dest Agent
+		src  agent.Agent
+		dest agent.Agent
 	}{src: src, dest: dest})
 }
 

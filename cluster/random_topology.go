@@ -1,8 +1,10 @@
-package agent
+package cluster
 
 import (
 	"fmt"
 	"math/rand"
+
+	"github.com/maticnetwork/libp2p-gossip-bench/agent"
 )
 
 type RandomTopology struct {
@@ -12,11 +14,11 @@ type RandomTopology struct {
 }
 
 // Creates random topology connections between peers
-func (t RandomTopology) MakeConnections(agents map[int]agentContainer) {
+func (t RandomTopology) MakeConnections(agents map[int]agent.Agent) {
 	connections := make(connectionsList, 0)
 
 	// create slice of agents and then populate random connection
-	possiblePeers := make([]agentContainer, 0, len(agents)) // list of all possible peers that can be choosen as source in one connection
+	possiblePeers := make([]agent.Agent, 0, len(agents)) // list of all possible peers that can be choosen as source in one connection
 	for _, value := range agents {
 		possiblePeers = append(possiblePeers, value)
 	}
@@ -27,15 +29,15 @@ func (t RandomTopology) MakeConnections(agents map[int]agentContainer) {
 	fmt.Printf("Connecting finished. Success: %d, failed: %d. Elapsed: %v\n", success, failed, elapsed)
 }
 
-func (t RandomTopology) populate(connections *connectionsList, peers []agentContainer) {
+func (t RandomTopology) populate(connections *connectionsList, peers []agent.Agent) {
 	count := t.Count
-	possiblePeers := make([]agentContainer, len(peers))  // this holds list of all possible peers in one iteration
+	possiblePeers := make([]agent.Agent, len(peers))     // this holds list of all possible peers in one iteration
 	peerMap := make(map[int]*rndToplogyPeer, len(peers)) // map portID -> *rndToplogyPeer
 
 	// init structures
 	copy(possiblePeers, peers)
-	for _, agentCont := range peers {
-		peerMap[agentCont.port] = newRndTopologyPeer(agentCont.port, agentCont.agent, peers)
+	for _, agent := range peers {
+		peerMap[agent.GetPort()] = newRndTopologyPeer(agent.GetPort(), agent, peers)
 	}
 
 	// create ring topology between nodes if specified
@@ -47,11 +49,11 @@ func (t RandomTopology) populate(connections *connectionsList, peers []agentCont
 		for i := 0; i < end && count > 0; i++ {
 			j := (i + 1) % len(possiblePeers)
 			src, dst := possiblePeers[i], possiblePeers[j]
-			peerMap[src.port].RemovePortId(dst.port)
-			peerMap[src.port].IncConnCount()
-			peerMap[dst.port].RemovePortId(src.port)
-			peerMap[dst.port].IncConnCount()
-			connections.Add(src.agent, dst.agent)
+			peerMap[src.GetPort()].RemovePortId(dst.GetPort())
+			peerMap[src.GetPort()].IncConnCount()
+			peerMap[dst.GetPort()].RemovePortId(src.GetPort())
+			peerMap[dst.GetPort()].IncConnCount()
+			connections.Add(src, dst)
 			count--
 		}
 	}
@@ -61,7 +63,7 @@ func (t RandomTopology) populate(connections *connectionsList, peers []agentCont
 		srcPeerIndex := rand.Intn(len(possiblePeers))
 
 		srcAgentCont := possiblePeers[srcPeerIndex]
-		srcPortID := srcAgentCont.port
+		srcPortID := srcAgentCont.GetPort()
 		srcPeer := peerMap[srcPortID]
 
 		dstPortID := srcPeer.PopRandomPortID()
@@ -94,12 +96,12 @@ func (t RandomTopology) populate(connections *connectionsList, peers []agentCont
 			newLength, oldLength := 0, len(possiblePeers)
 			for i := 0; i < oldLength; i++ {
 				agentCont := possiblePeers[i]
-				peer := peerMap[agentCont.port]
+				peer := peerMap[agentCont.GetPort()]
 				if peer.CanBeUsed(t.MaxPeers) {
 					possiblePeers[newLength] = agentCont
 					newLength++
 				} else {
-					delete(peerMap, agentCont.port)
+					delete(peerMap, agentCont.GetPort())
 				}
 			}
 			possiblePeers = possiblePeers[:newLength]
@@ -111,15 +113,15 @@ func (t RandomTopology) populate(connections *connectionsList, peers []agentCont
 type rndToplogyPeer struct {
 	connCount     uint
 	portID        int
-	agent         Agent
+	agent         agent.Agent
 	possibleConns []int
 }
 
-func newRndTopologyPeer(portID int, agent Agent, agents []agentContainer) *rndToplogyPeer {
+func newRndTopologyPeer(portID int, agent agent.Agent, agents []agent.Agent) *rndToplogyPeer {
 	possible := make([]int, 0, len(agents)-1)
 	for _, agent := range agents {
-		if agent.port != portID {
-			possible = append(possible, agent.port)
+		if agent.GetPort() != portID {
+			possible = append(possible, agent.GetPort())
 		}
 	}
 	return &rndToplogyPeer{
