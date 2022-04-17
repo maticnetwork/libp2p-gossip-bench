@@ -4,7 +4,7 @@ import (
 	"testing"
 )
 
-func TestNew(t *testing.T) {
+func TestStateNew(t *testing.T) {
 	try := "yo"
 	state := newState(try)
 
@@ -22,7 +22,7 @@ func TestNew(t *testing.T) {
 	}
 }
 
-func TestUpdate(t *testing.T) {
+func TestStateUpdate(t *testing.T) {
 	try := "yo"
 	update := "po"
 
@@ -45,7 +45,7 @@ func TestUpdate(t *testing.T) {
 		t.Errorf("Expected done to be closed\n")
 	}
 
-	if stateUpdated.value != update {
+	if stateUpdated.value == update {
 		t.Errorf("Expected %#v but go %#v\n", try, stateUpdated.value)
 	}
 	if stateUpdated.next != nil {
