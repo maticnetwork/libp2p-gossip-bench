@@ -95,3 +95,41 @@ func TestStreamChanges(t *testing.T) {
 	default:
 	}
 }
+
+func TestStreamHasNext(t *testing.T) {
+	init := "yo"
+	state := newState(init)
+	stream := &stream{state: state}
+
+	if stream.HasNext() {
+		t.Errorf("Should be no changes")
+	}
+
+	update := "po"
+	state.update(update)
+	if !stream.HasNext() {
+		t.Errorf("Expecting changes here")
+	}
+
+	if val := stream.Next(); val != update {
+		t.Errorf("Expected to get %#v but got %#v\n", update, val)
+	}
+}
+
+func TestStreamWaitNext(t *testing.T) {
+	init := 10
+	state := newState(init)
+	stream := &stream{state: state}
+
+	start := 15
+	for i := start; i <= 100; i++ {
+		state = state.update(i)
+		if val := stream.WaitNext(); val != i {
+			t.Errorf("Expected to get %#v but got %#v\n", i, val)
+		}
+	}
+
+	if stream.HasNext() {
+		t.Errorf("Should be no changes")
+	}
+}
