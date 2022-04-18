@@ -133,11 +133,13 @@ func (fc *StartGossipCommand) Run(args []string) int {
 		messaging = cluster.ConstantRateMessaging{
 			Rate:        msgRate,
 			LogDuration: benchDuration,
+			Timeout:     benchTimeout,
 			MessageSize: fc.Params.messageSize,
 		}
 	case hotStuff:
 		messaging = cluster.HotstuffMessaging{
 			LogDuration: benchDuration,
+			Timeout:     benchTimeout,
 			MessageSize: fc.Params.messageSize,
 		}
 	default:
@@ -164,7 +166,7 @@ func (fc *StartGossipCommand) Run(args []string) int {
 
 	fc.UI.Info("Starting benchmark...")
 
-	StartGossipBench(ctx, fc.Params, topology, messaging, benchTimeout)
+	StartGossipBench(ctx, fc.Params, topology, messaging)
 
 	fc.UI.Info("Benchmark executed")
 
@@ -190,7 +192,7 @@ func (fc *StartGossipCommand) NewFlagSet() *flag.FlagSet {
 	return flagSet
 }
 
-func StartGossipBench(ctx context.Context, params GossipParameters, topology cluster.Topology, messaging cluster.Messaging, timeout time.Duration) {
+func StartGossipBench(ctx context.Context, params GossipParameters, topology cluster.Topology, messaging cluster.Messaging) {
 	// remove file if exists
 	// logger configuration
 	cfg := zap.NewProductionConfig()
@@ -206,6 +208,8 @@ func StartGossipBench(ctx context.Context, params GossipParameters, topology clu
 	if err != nil {
 		panic(err)
 	}
+	// flush logger buffer
+	defer logger.Sync()
 
 	logger.Info("Starting gossip benchmark",
 		zap.Int("agentsCount", params.nodeCount),
@@ -240,15 +244,7 @@ func StartGossipBench(ctx context.Context, params GossipParameters, topology clu
 	fmt.Printf("Agents added: %d. Failed agents: %v, Elapsed time: %v\n", agentsStarted, agentsFailed, timeAdded)
 	cluster.ConnectAgents(topology)
 
-	timeoutCtx, cancel := context.WithTimeout(ctx, timeout)
-	defer func() {
-		// flush logger buffer
-		defer logger.Sync()
-		// cleanup for the timeout context
-		cancel()
-	}()
-
-	msgsPublishedCnt, msgsFailedCnt := cluster.StartMessaging(timeoutCtx, messaging)
+	msgsPublishedCnt, msgsFailedCnt := cluster.StartMessaging(ctx, messaging)
 	fmt.Printf("Published %d messages \n", msgsPublishedCnt)
 	fmt.Printf("Failed %d messages \n", msgsFailedCnt)
 }
