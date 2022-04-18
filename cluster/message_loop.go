@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/maticnetwork/libp2p-gossip-bench/agent"
+	"github.com/maticnetwork/libp2p-gossip-bench/observer"
 )
 
 type Messaging interface {
@@ -25,22 +26,39 @@ func (c ConstantRateMessaging) Loop(ctx context.Context, agents []agent.Agent) (
 	var wg sync.WaitGroup
 	start := time.Now()
 
+	// create time observable
+	timeSubject := observer.NewSubject(start)
+	// update subject with every tick
+	go func() {
+		tm := time.NewTicker(c.Rate)
+		defer tm.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				// kill or expiration signal received
+				return
+			case time := <-tm.C:
+				timeSubject.Update(time)
+			}
+		}
+	}()
+
 	for _, a := range agents {
 		// start waiting for each agent we've started
 		wg.Add(1)
 		go func(a agent.Agent) {
-			tm := time.NewTicker(c.Rate)
-			defer func() {
-				tm.Stop()
-				defer wg.Done()
-			}()
+			defer wg.Done()
+			stream := timeSubject.Observe()
 
 			for {
 				select {
 				case <-ctx.Done():
 					// kill or expiration signal received
 					return
-				case <-tm.C:
+					// wait for update changes
+				case <-stream.Changes():
+					// advance to next value
+					stream.Next()
 					// log message, used for stats aggregation,
 					// should be logged only during specified benchmark log duration
 					err := a.SendMessage(c.MessageSize, shouldAggregate(start, c.LogDuration))
