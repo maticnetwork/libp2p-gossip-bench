@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"sort"
 	"strings"
 	"time"
 
@@ -209,6 +210,23 @@ func incrementNodesCount(durationStatistics map[time.Duration]int, duration time
 }
 
 func printStats(result map[string]stats, header Header) {
+	type kv struct {
+		messageID string
+		stats     stats
+	}
+
+	// allocate memory for the array at once to avoid append.
+	var sortedStats = make([]kv, len(result))
+	i := 0
+	for k, v := range result {
+		sortedStats[i] = kv{k, v}
+		i++
+	}
+	// sort by message sent time
+	sort.Slice(sortedStats, func(i, j int) bool {
+		return sortedStats[i].stats.msgSentTime.Before(sortedStats[j].stats.msgSentTime)
+	})
+
 	fmt.Printf("Topology: %s\n", header.Topology)
 	fmt.Printf("BenchDuration: %s\n", header.BenchDuration*time.Second)
 	fmt.Printf("MsgRate: %s\n", header.MsgRate)
@@ -220,7 +238,8 @@ func printStats(result map[string]stats, header Header) {
 		fmt.Printf("ConnectionsCount: %d\n", header.ConnectionCount)
 	}
 	fmt.Printf("TotalAgents: %v\nTotalValidators: %v\n", header.AgentsCount, header.ValidatorsCount)
-	for _, stats := range result {
+	for _, k := range sortedStats {
+		stats := k.stats
 		maxDuration := stats.lastValidatorReceivedMsg.Sub(stats.msgSentTime)
 		percentageReceivedMessage := float64(stats.totalNodesReceivedMsg*100) / float64(header.AgentsCount)
 		percentageNotReceivedMessage := 100 - percentageReceivedMessage
