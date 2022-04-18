@@ -28,8 +28,8 @@ func (c ConstantRateMessaging) Loop(ctx context.Context, agents []agent.Agent) (
 
 	// create time observable
 	timeSubject := observer.NewSubject(start)
-	// update subject with every tick
 	go func() {
+		// create a ticker for a defined messaging rate
 		tm := time.NewTicker(c.Rate)
 		defer tm.Stop()
 		for {
@@ -38,6 +38,7 @@ func (c ConstantRateMessaging) Loop(ctx context.Context, agents []agent.Agent) (
 				// kill or expiration signal received
 				return
 			case time := <-tm.C:
+				// update subject with new time from ticker
 				timeSubject.Update(time)
 			}
 		}
@@ -88,10 +89,23 @@ func (h HotstuffMessaging) Loop(ctx context.Context, agents []agent.Agent) (int6
 	var wg sync.WaitGroup
 	start := time.Now()
 
-	// start ticker for leader and the rest of agents
-	tick := time.NewTicker(time.Second)
-	defer tick.Stop()
-	leaderChan, restChan := doubleTicker(tick.C)
+	// create time observable
+	timeSubject := observer.NewSubject(start)
+	go func() {
+		// create a ticker for each second
+		tm := time.NewTicker(time.Second)
+		defer tm.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				// kill or expiration signal received
+				return
+			case time := <-tm.C:
+				// update subject with new time from ticker
+				timeSubject.Update(time)
+			}
+		}
+	}()
 
 	// get a random index, for a random leader agent
 	rand.Seed(time.Now().UnixNano())
@@ -104,19 +118,28 @@ func (h HotstuffMessaging) Loop(ctx context.Context, agents []agent.Agent) (int6
 	wg.Add(1)
 	go func(a agent.Agent) {
 		defer wg.Done()
+		stream := timeSubject.Observe()
+
 		for {
 			select {
 			case <-ctx.Done():
 				// kill or expiration signal received
 				return
-			case <-leaderChan:
-				// log message, used for stats aggregation,
-				// should be logged only during specified benchmark log duration
-				err := a.SendMessage(h.MessageSize, shouldAggregate(start, h.LogDuration))
-				if err != nil {
-					atomic.AddInt64(&failedCnt, 1)
-				} else {
-					atomic.AddInt64(&publishedCnt, 1)
+			case <-stream.Changes():
+				// advance to next value
+				stream.Next()
+				currentTime := stream.Value().(time.Time)
+
+				// check for odd second
+				if !onEvenSecond(currentTime) {
+					// log message, used for stats aggregation,
+					// should be logged only during specified benchmark log duration
+					err := a.SendMessage(h.MessageSize, shouldAggregate(start, h.LogDuration))
+					if err != nil {
+						atomic.AddInt64(&failedCnt, 1)
+					} else {
+						atomic.AddInt64(&publishedCnt, 1)
+					}
 				}
 			}
 		}
@@ -128,17 +151,28 @@ func (h HotstuffMessaging) Loop(ctx context.Context, agents []agent.Agent) (int6
 		wg.Add(1)
 		go func(a agent.Agent) {
 			defer wg.Done()
+			stream := timeSubject.Observe()
+
 			for {
 				select {
 				case <-ctx.Done():
 					// kill or expiration signal received
 					return
-				case <-restChan:
-					err := a.SendMessage(h.MessageSize, shouldAggregate(start, h.LogDuration))
-					if err != nil {
-						atomic.AddInt64(&failedCnt, 1)
-					} else {
-						atomic.AddInt64(&publishedCnt, 1)
+				case <-stream.Changes():
+					// advance to next value
+					stream.Next()
+					currentTime := stream.Value().(time.Time)
+
+					// check for even second
+					if onEvenSecond(currentTime) {
+						// log message, used for stats aggregation,
+						// should be logged only during specified benchmark log duration
+						err := a.SendMessage(h.MessageSize, shouldAggregate(start, h.LogDuration))
+						if err != nil {
+							atomic.AddInt64(&failedCnt, 1)
+						} else {
+							atomic.AddInt64(&publishedCnt, 1)
+						}
 					}
 				}
 			}
@@ -153,24 +187,6 @@ func (h HotstuffMessaging) Loop(ctx context.Context, agents []agent.Agent) (int6
 
 func onEvenSecond(t time.Time) bool {
 	return t.Second()%2 == 0
-}
-
-// doubleTicker is used to determine the rhythm of sent messages
-// channel for a leader agent receives messages on odd seconds
-// chanel for the rest of agents receives messages on even seconds
-func doubleTicker(c <-chan time.Time) (chan time.Time, chan time.Time) {
-	leadChan := make(chan time.Time)
-	restChan := make(chan time.Time)
-	go func() {
-		for t := range c {
-			if onEvenSecond(t) {
-				restChan <- t
-			} else {
-				leadChan <- t
-			}
-		}
-	}()
-	return leadChan, restChan
 }
 
 func shouldAggregate(start time.Time, duration time.Duration) bool {
