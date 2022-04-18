@@ -28,21 +28,7 @@ func (c ConstantRateMessaging) Loop(ctx context.Context, agents []agent.Agent) (
 
 	// create time observable
 	timeSubject := observer.NewSubject(start)
-	go func() {
-		// create a ticker for a defined messaging rate
-		tm := time.NewTicker(c.Rate)
-		defer tm.Stop()
-		for {
-			select {
-			case <-ctx.Done():
-				// kill or expiration signal received
-				return
-			case time := <-tm.C:
-				// update subject with new time from ticker
-				timeSubject.Update(time)
-			}
-		}
-	}()
+	go updateSubjectForRate(ctx, timeSubject, c.Rate)
 
 	for _, a := range agents {
 		// start waiting for each agent we've started
@@ -91,21 +77,7 @@ func (h HotstuffMessaging) Loop(ctx context.Context, agents []agent.Agent) (int6
 
 	// create time observable
 	timeSubject := observer.NewSubject(start)
-	go func() {
-		// create a ticker for each second
-		tm := time.NewTicker(time.Second)
-		defer tm.Stop()
-		for {
-			select {
-			case <-ctx.Done():
-				// kill or expiration signal received
-				return
-			case time := <-tm.C:
-				// update subject with new time from ticker
-				timeSubject.Update(time)
-			}
-		}
-	}()
+	go updateSubjectForRate(ctx, timeSubject, time.Second)
 
 	// get a random index, for a random leader agent
 	rand.Seed(time.Now().UnixNano())
@@ -192,5 +164,21 @@ func onEvenSecond(t time.Time) bool {
 func shouldAggregate(start time.Time, duration time.Duration) bool {
 	msgTime := time.Now()
 	return msgTime.Before(start.Add(duration))
+}
 
+// updateSubjectForRate is used to update created observer Subject for defined rate
+func updateSubjectForRate(ctx context.Context, subject observer.Subject, rate time.Duration) {
+	// create a ticker for a defined messaging rate
+	tm := time.NewTicker(rate)
+	defer tm.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			// kill or expiration signal received
+			return
+		case time := <-tm.C:
+			// update subject with new time from ticker
+			subject.Update(time)
+		}
+	}
 }
