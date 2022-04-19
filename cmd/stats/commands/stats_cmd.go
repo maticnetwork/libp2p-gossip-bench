@@ -242,7 +242,7 @@ func printStats(msgNumber int, result map[string]stats, header Header) {
 	fmt.Printf("TotalAgents: %v\nTotalValidators: %v\n", header.AgentsCount, header.ValidatorsCount)
 	validatorDurationMessages := make(map[time.Duration]int)
 	var totalValidatorsNotReceivedAllMsg int
-	var maxNotReceivedValidators int
+	var maxValidatorsNotReceivedMessage int
 	for _, k := range sortedStats {
 		stats := k.stats
 		maxDuration := stats.lastValidatorReceivedMsg.Sub(stats.msgSentTime)
@@ -258,12 +258,12 @@ func printStats(msgNumber int, result map[string]stats, header Header) {
 		if stats.totalValidatorNodesReceivedMsg < header.ValidatorsCount {
 			totalValidatorsNotReceivedAllMsg++
 			notReceivedValidators := header.ValidatorsCount - stats.totalValidatorNodesReceivedMsg
-			if maxNotReceivedValidators < notReceivedValidators {
-				maxNotReceivedValidators = notReceivedValidators
+			if maxValidatorsNotReceivedMessage < notReceivedValidators {
+				maxValidatorsNotReceivedMessage = notReceivedValidators
 			}
 		}
 		fmt.Println("=== Statistics ===")
-		fmt.Printf("MessageID: %s\nTotalNodesReceivedMsg: %d (%.2f%%)\nTotalNodesNotReceivedMsg: %d (%.2f%%)\nMsgSentTime: %s\nLastNodeReceivedMsgTime: %s\nLastNodeRecivedMsgAfter: %s\nLastValidatorReceivedMsg: %s\nLastValidatorRecivedMsgAfter: %s\n",
+		fmt.Printf("MessageID: %s\nTotalNodesReceivedMsg: %d (%.2f%%)\nTotalNodesNotReceivedMsg: %d (%.2f%%)\nMsgSentTime: %s\nLastNodeReceivedMsgTime: %s\nLastNodeReceivedMsgAfter: %s\nLastValidatorReceivedMsg: %s\nLastValidatorReceivedMsgAfter: %s\n",
 			stats.msgID,
 			stats.totalNodesReceivedMsg,
 			percentageReceivedMessage,
@@ -285,7 +285,7 @@ func printStats(msgNumber int, result map[string]stats, header Header) {
 		fmt.Printf("Average received message time for all nodes: %d of total %d is %.2f\n", stats.totalNodesReceivedMsg, header.AgentsCount, stats.sumDurations.Seconds()/float64(stats.totalNodesReceivedMsg))
 		fmt.Printf("Average received message time for validator nodes: %d of total %d is %.2f\n", stats.totalValidatorNodesReceivedMsg, header.ValidatorsCount, stats.sumValidatorsDurations.Seconds()/float64(stats.totalValidatorNodesReceivedMsg))
 	}
-	fmt.Printf("Maximum number validators not received message: %d\n", maxNotReceivedValidators)
+	fmt.Printf("Maximum number validators not received message: %d\n", maxValidatorsNotReceivedMessage)
 	fmt.Printf("Total number of messages that all validator not received: %d (%.2f%%)  messages out of %d messages\n", totalValidatorsNotReceivedAllMsg, float64(100*totalValidatorsNotReceivedAllMsg)/float64(msgNumber), msgNumber)
 
 	var validatorDurations []time.Duration
