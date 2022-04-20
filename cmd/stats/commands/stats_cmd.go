@@ -297,7 +297,7 @@ func printStats(msgNumber int, result map[string]stats, header Header) {
 	})
 
 	for _, duration := range validatorDurations {
-		if duration > 0 {
+		if duration >= 0 {
 			fmt.Printf("Duration <= %d seconds count: %d messages (%.2f%%)\n", int(duration.Seconds()), validatorDurationMessages[duration], float64(100*validatorDurationMessages[duration])/float64(msgNumber))
 		} else {
 			fmt.Printf("No validator receive messages - count: %d (%.2f%%)\n", validatorDurationMessages[duration], float64(100*validatorDurationMessages[duration])/float64(msgNumber))
