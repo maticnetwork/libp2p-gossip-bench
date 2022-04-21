@@ -285,8 +285,8 @@ func printStats(msgNumber int, result map[string]stats, header Header) {
 		fmt.Printf("Average received message time for all nodes: %d of total %d is %.2f\n", stats.totalNodesReceivedMsg, header.AgentsCount, stats.sumDurations.Seconds()/float64(stats.totalNodesReceivedMsg))
 		fmt.Printf("Average received message time for validator nodes: %d of total %d is %.2f\n", stats.totalValidatorNodesReceivedMsg, header.ValidatorsCount, stats.sumValidatorsDurations.Seconds()/float64(stats.totalValidatorNodesReceivedMsg))
 	}
-	fmt.Printf("Maximum number validators not received message: %d\n", maxValidatorsNotReceivedMessage)
-	fmt.Printf("Total number of messages that all validator not received: %d (%.2f%%)  messages out of %d messages\n", totalValidatorsNotReceivedAllMsg, float64(100*totalValidatorsNotReceivedAllMsg)/float64(msgNumber), msgNumber)
+	fmt.Printf("Maximum number of validators that didn't receive message: %d\n", maxValidatorsNotReceivedMessage)
+	fmt.Printf("Total number of messages that all validator didn't receive: %d (%.2f%%)  messages out of %d messages\n", totalValidatorsNotReceivedAllMsg, float64(100*totalValidatorsNotReceivedAllMsg)/float64(msgNumber), msgNumber)
 
 	var validatorDurations []time.Duration
 	for k, _ := range validatorDurationMessages {
