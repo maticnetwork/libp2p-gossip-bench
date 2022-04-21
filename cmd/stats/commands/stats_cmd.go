@@ -101,6 +101,7 @@ func RunStats(filePath string, maxDurationInSeconds int) {
 	}
 
 	var logLine Log
+	var msgNumber int
 	for s.Scan() {
 		err := json.Unmarshal(s.Bytes(), &logLine)
 		if err != nil {
@@ -108,19 +109,20 @@ func RunStats(filePath string, maxDurationInSeconds int) {
 			return
 		}
 		if logLine.AggregateStats {
-			addStatistics(logLine, result)
+			addStatistics(logLine, &msgNumber, result)
 		}
 	}
 
-	printStats(result, header)
+	printStats(msgNumber, result, header)
 }
 
-func addStatistics(logLine Log, result map[string]stats) {
+func addStatistics(logLine Log, msgNumber *int, result map[string]stats) {
 	if logLine.Direction == "sent" {
 		sentTime := logLine.Time
 		if _, ok := result[logLine.MsgID]; ok {
 			panic("Error, sent time already exists.")
 		} else {
+			*msgNumber++
 			m := make(map[time.Duration]int)
 			result[logLine.MsgID] = stats{
 				msgSentTime:        sentTime,
@@ -209,7 +211,7 @@ func incrementNodesCount(durationStatistics map[time.Duration]int, duration time
 	}
 }
 
-func printStats(result map[string]stats, header Header) {
+func printStats(msgNumber int, result map[string]stats, header Header) {
 	type kv struct {
 		messageID string
 		stats     stats
@@ -238,6 +240,9 @@ func printStats(result map[string]stats, header Header) {
 		fmt.Printf("ConnectionsCount: %d\n", header.ConnectionCount)
 	}
 	fmt.Printf("TotalAgents: %v\nTotalValidators: %v\n", header.AgentsCount, header.ValidatorsCount)
+	validatorDurationMessages := make(map[time.Duration]int)
+	var totalValidatorsNotReceivedAllMsg int
+	var maxValidatorsNotReceivedMessage int
 	for _, k := range sortedStats {
 		stats := k.stats
 		maxDuration := stats.lastValidatorReceivedMsg.Sub(stats.msgSentTime)
@@ -246,8 +251,19 @@ func printStats(result map[string]stats, header Header) {
 		totalNodesNotReceivedMsg := header.AgentsCount - stats.totalNodesReceivedMsg
 		timeSinceMsgSent := stats.lastMsgReceivedTime.Sub(stats.msgSentTime)
 		lastValidatorReceivedSinceMsgSent := stats.lastValidatorReceivedMsg.Sub(stats.msgSentTime)
+		if stats.totalValidatorNodesReceivedMsg == header.ValidatorsCount {
+			validatorDurationMessages[lastValidatorReceivedSinceMsgSent]++
+		}
+
+		if stats.totalValidatorNodesReceivedMsg < header.ValidatorsCount {
+			totalValidatorsNotReceivedAllMsg++
+			notReceivedValidators := header.ValidatorsCount - stats.totalValidatorNodesReceivedMsg
+			if maxValidatorsNotReceivedMessage < notReceivedValidators {
+				maxValidatorsNotReceivedMessage = notReceivedValidators
+			}
+		}
 		fmt.Println("=== Statistics ===")
-		fmt.Printf("MessageID: %s\nTotalNodesReceivedMsg: %d (%.2f%%)\nTotalNodesNotReceivedMsg: %d (%.2f%%)\nMsgSentTime: %s\nLastNodeReceivedMsgTime: %s\nLastNodeRecivedMsgAfter: %s\nLastValidatorReceivedMsg: %s\nLastValidatorRecivedMsgAfter: %s\n",
+		fmt.Printf("MessageID: %s\nTotalNodesReceivedMsg: %d (%.2f%%)\nTotalNodesNotReceivedMsg: %d (%.2f%%)\nMsgSentTime: %s\nLastNodeReceivedMsgTime: %s\nLastNodeReceivedMsgAfter: %s\nLastValidatorReceivedMsg: %s\nLastValidatorReceivedMsgAfter: %s\n",
 			stats.msgID,
 			stats.totalNodesReceivedMsg,
 			percentageReceivedMessage,
@@ -259,6 +275,7 @@ func printStats(result map[string]stats, header Header) {
 			stats.lastValidatorReceivedMsg,
 			lastValidatorReceivedSinceMsgSent,
 		)
+
 		for _, d := range durations {
 			if d <= maxDuration {
 				fmt.Printf("Threshold: <= %s, ValidatorsNodesReceivedMsg: %d/%d (%.2f%%)\n",
@@ -267,6 +284,24 @@ func printStats(result map[string]stats, header Header) {
 		}
 		fmt.Printf("Average received message time for all nodes: %d of total %d is %.2f\n", stats.totalNodesReceivedMsg, header.AgentsCount, stats.sumDurations.Seconds()/float64(stats.totalNodesReceivedMsg))
 		fmt.Printf("Average received message time for validator nodes: %d of total %d is %.2f\n", stats.totalValidatorNodesReceivedMsg, header.ValidatorsCount, stats.sumValidatorsDurations.Seconds()/float64(stats.totalValidatorNodesReceivedMsg))
+	}
+	fmt.Printf("Maximum number of validators that didn't receive message: %d\n", maxValidatorsNotReceivedMessage)
+	fmt.Printf("Total number of messages that all validator didn't receive: %d (%.2f%%)  messages out of %d messages\n", totalValidatorsNotReceivedAllMsg, float64(100*totalValidatorsNotReceivedAllMsg)/float64(msgNumber), msgNumber)
+
+	var validatorDurations []time.Duration
+	for k, _ := range validatorDurationMessages {
+		validatorDurations = append(validatorDurations, k)
+	}
+	sort.Slice(validatorDurations, func(i, j int) bool {
+		return validatorDurations[i] < (validatorDurations[j])
+	})
+
+	for _, duration := range validatorDurations {
+		if duration >= 0 {
+			fmt.Printf("Duration <= %d seconds count: %d messages (%.2f%%)\n", int(duration.Seconds()), validatorDurationMessages[duration], float64(100*validatorDurationMessages[duration])/float64(msgNumber))
+		} else {
+			fmt.Printf("No validator receive messages - count: %d (%.2f%%)\n", validatorDurationMessages[duration], float64(100*validatorDurationMessages[duration])/float64(msgNumber))
+		}
 	}
 }
 
